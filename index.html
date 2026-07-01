@@ -92,7 +92,6 @@
     border:1px solid var(--hair);border-radius:999px;padding:7px 13px;cursor:pointer;display:flex;align-items:center;gap:7px;line-height:1;
     transition:background .15s,border-color .15s,color .15s}
   .toggle .tk{width:8px;height:8px;border-radius:50%;background:var(--muted-2)}
-  .toggle .tsym{line-height:1;font-size:15px;margin-right:-2px}   /* own flex item so the glyph centers vertically */
   .toggle[aria-pressed="true"]{background:var(--c-social);color:#fff;border-color:transparent}
   .toggle[aria-pressed="true"] .tk{background:#fff}
   .search:focus-visible,.toggle:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
@@ -415,7 +414,14 @@
           <button class="toggle" id="mineOnly" type="button" aria-pressed="false"><span class="tk"></span>✓ My sessions</button>
           <button class="toggle" id="friendsOnly" type="button" aria-pressed="false"><span class="tk"></span>★ Friends</button>
           <button class="toggle" id="openOnly" type="button" aria-pressed="false"><span class="tk"></span>Open spots only</button>
-          <button class="toggle" id="womenOnly" type="button" aria-pressed="false"><span class="tk"></span><span class="tsym" aria-hidden="true">&#9792;&#xFE0E;</span>Women</button>
+          <div class="fld">
+            <label>Women&rsquo;s</label>
+            <div class="seg" id="womenSeg" role="group" aria-label="Women&rsquo;s sessions">
+              <button data-w="all" aria-pressed="true">All</button>
+              <button data-w="only" aria-pressed="false">Only</button>
+              <button data-w="none" aria-pressed="false">Hide</button>
+            </div>
+          </div>
           <button class="reset" id="manageFriends" type="button">You &amp; friends</button>
           <button class="reset" id="reset" type="button">Reset filters</button>
         </div>
@@ -516,7 +522,7 @@ function meterHtml(e){
 
 // ---- module state, filled by boot() ----
 let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null, PEOPLE=[], curList=[];
-let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn,womenOnlyBtn,controlsEl,filtToggle,filtCount,views;
+let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn,womenSeg,controlsEl,filtToggle,filtCount,views;
 
 // ---- friends (per-device, keyed on stable PodPlay profile id) ----
 const FRIENDS_KEY="apex-podplay-friends";
@@ -544,7 +550,7 @@ let savedViews=[];
 function loadViews(){ try{ const a=JSON.parse(localStorage.getItem(VIEWS_KEY)); if(Array.isArray(a)) savedViews=a.filter(v=>v&&v.name&&v.f); }catch(e){} }
 function saveViews(){ try{ localStorage.setItem(VIEWS_KEY, JSON.stringify(savedViews)); }catch(e){} }
 function snapshotFilters(){ return { types:[...state.types], levels:[...state.levels], days:[...state.days],
-  tMin:state.tMin, tMax:state.tMax, openOnly:state.openOnly, friendsOnly:state.friendsOnly, mineOnly:state.mineOnly, womenOnly:state.womenOnly, search:state.search }; }
+  tMin:state.tMin, tMax:state.tMax, openOnly:state.openOnly, friendsOnly:state.friendsOnly, mineOnly:state.mineOnly, women:state.women, search:state.search }; }
 function applyView(f){
   if(!f) return;
   const okL=new Set(LEVEL_KEYS);
@@ -554,12 +560,14 @@ function applyView(f){
   state.tMin = typeof f.tMin==="number" ? Math.min(Math.max(f.tMin,T_FLOOR),T_CEIL) : T_FLOOR;
   state.tMax = typeof f.tMax==="number" ? Math.min(Math.max(f.tMax,T_FLOOR),T_CEIL) : T_CEIL;
   if(state.tMin>state.tMax){ state.tMin=T_FLOOR; state.tMax=T_CEIL; }
-  state.openOnly=!!f.openOnly; state.friendsOnly=!!f.friendsOnly; state.mineOnly=!!(f.mineOnly&&me); state.womenOnly=!!f.womenOnly; state.search=f.search||"";
+  state.openOnly=!!f.openOnly; state.friendsOnly=!!f.friendsOnly; state.mineOnly=!!(f.mineOnly&&me);
+  state.women=(f.women==="only"||f.women==="none")?f.women:(f.womenOnly?"only":"all");   // incl. legacy boolean views
+  state.search=f.search||"";
   tmin.value=state.tMin; tmax.value=state.tMax; searchEl.value=state.search;
   openOnlyBtn.setAttribute("aria-pressed",state.openOnly?"true":"false");
   friendsOnlyBtn.setAttribute("aria-pressed",state.friendsOnly?"true":"false");
   mineOnlyBtn.setAttribute("aria-pressed",state.mineOnly?"true":"false");
-  womenOnlyBtn.setAttribute("aria-pressed",state.womenOnly?"true":"false");
+  syncWomen();
   syncPressed(typeChips,"c-",state.types); syncLevels(); syncDow(); updateRangeUI();
   saveState(); render();
 }
@@ -673,7 +681,7 @@ function boot(payload){
     openOnly: false,     // persisted
     friendsOnly: false,  // persisted
     mineOnly: false,     // persisted
-    womenOnly: false,    // persisted
+    women: "all",        // persisted: "all" | "only" | "none"
     search: "",          // transient (not persisted)
   };
   loadState();
@@ -704,7 +712,7 @@ function boot(payload){
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify({
     types:[...state.types], levels:[...state.levels], days:[...state.days],
-    tMin:state.tMin, tMax:state.tMax, view:state.view, openOnly:state.openOnly, friendsOnly:state.friendsOnly, mineOnly:state.mineOnly, womenOnly:state.womenOnly })); }catch(e){}
+    tMin:state.tMin, tMax:state.tMax, view:state.view, openOnly:state.openOnly, friendsOnly:state.friendsOnly, mineOnly:state.mineOnly, women:state.women })); }catch(e){}
 }
 function loadState(){
   let s; try{ s=JSON.parse(localStorage.getItem(LS_KEY)); }catch(e){ return; }
@@ -719,7 +727,8 @@ function loadState(){
   if(typeof s.openOnly==="boolean") state.openOnly=s.openOnly;
   if(typeof s.friendsOnly==="boolean") state.friendsOnly=s.friendsOnly;
   if(typeof s.mineOnly==="boolean") state.mineOnly=s.mineOnly;
-  if(typeof s.womenOnly==="boolean") state.womenOnly=s.womenOnly;
+  if(s.women==="only"||s.women==="none") state.women=s.women;
+  else if(s.womenOnly===true) state.women="only";   // migrate the earlier boolean toggle
 }
 
 // ---- filtering ----
@@ -735,7 +744,8 @@ function passNonType(e){
     && (!state.openOnly || e.spotsLeft===null || e.spotsLeft>0)
     && (!state.friendsOnly || friendCountIn(e)>0)
     && (!state.mineOnly || myStatus(e)!==null)
-    && (!state.womenOnly || e.isWomen)
+    && (state.women!=="only" || e.isWomen)
+    && (state.women!=="none" || !e.isWomen)
     && (!state.search || e.name.toLowerCase().includes(state.search)
         || (e._attNames && e._attNames.some(n=>n.includes(state.search))));   // search matches session OR a player's name
 }
@@ -760,7 +770,7 @@ function cacheEls(){
   rfill=document.getElementById("rfill"); timeLbl=document.getElementById("timeLabel");
   dowToggle=document.getElementById("dowToggle"); lvlChips=document.getElementById("lvlChips"); typeChips=document.getElementById("typeChips");
   searchEl=document.getElementById("search"); openOnlyBtn=document.getElementById("openOnly");
-  womenOnlyBtn=document.getElementById("womenOnly");
+  womenSeg=document.getElementById("womenSeg");
   friendsOnlyBtn=document.getElementById("friendsOnly"); manageFriendsBtn=document.getElementById("manageFriends");
   mineOnlyBtn=document.getElementById("mineOnly");
   controlsEl=document.querySelector(".controls"); filtToggle=document.getElementById("filtToggle"); filtCount=document.getElementById("filtCount");
@@ -781,7 +791,7 @@ function activeFilterCount(){
   if(state.openOnly) n++;
   if(state.friendsOnly) n++;
   if(state.mineOnly) n++;
-  if(state.womenOnly) n++;
+  if(state.women!=="all") n++;
   if(state.search) n++;
   return n;
 }
@@ -855,6 +865,7 @@ function clickLevel(k){
   syncLevels();
 }
 function syncDow(){ [...dowToggle.children].forEach((b,i)=>b.setAttribute("aria-pressed", state.days.has(i)?"true":"false")); }
+function syncWomen(){ [...womenSeg.children].forEach(b=>b.setAttribute("aria-pressed", b.dataset.w===state.women?"true":"false")); }
 
 // ---- month nav ----
 function setMonth(ym){ const [y,m]=ym.split("-").map(Number); state.month={y,m}; }
@@ -1184,8 +1195,8 @@ function wire(){
   });
   openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false");
   openOnlyBtn.onclick=()=>{ state.openOnly=!state.openOnly; openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false"); saveState(); render(); };
-  womenOnlyBtn.setAttribute("aria-pressed", state.womenOnly?"true":"false");
-  womenOnlyBtn.onclick=()=>{ state.womenOnly=!state.womenOnly; womenOnlyBtn.setAttribute("aria-pressed", state.womenOnly?"true":"false"); saveState(); render(); };
+  syncWomen();
+  [...womenSeg.children].forEach(b=>{ b.onclick=()=>{ state.women=b.dataset.w; syncWomen(); saveState(); render(); }; });
   friendsOnlyBtn.onclick=()=>{ state.friendsOnly=!state.friendsOnly; friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false"); saveState(); render(); };
   mineOnlyBtn.onclick=()=>{ if(!me){ openPeople(); return; } state.mineOnly=!state.mineOnly; mineOnlyBtn.setAttribute("aria-pressed", state.mineOnly?"true":"false"); saveState(); render(); };
   manageFriendsBtn.onclick=()=>openPeople();
@@ -1211,10 +1222,10 @@ function resetFilters(){
   try{ localStorage.removeItem(LS_KEY); }catch(e){}
   state.types=new Set(Object.keys(CATS)); state.levels=new Set(["all"]);
   state.days=new Set([0,1,2,3,4,5,6]); state.tMin=T_FLOOR; state.tMax=T_CEIL; state.view="month";
-  state.openOnly=false; state.friendsOnly=false; state.mineOnly=false; state.womenOnly=false; state.search="";
+  state.openOnly=false; state.friendsOnly=false; state.mineOnly=false; state.women="all"; state.search="";
   tmin.value=T_FLOOR; tmax.value=T_CEIL; searchEl.value="";
-  openOnlyBtn.setAttribute("aria-pressed","false"); friendsOnlyBtn.setAttribute("aria-pressed","false"); mineOnlyBtn.setAttribute("aria-pressed","false"); womenOnlyBtn.setAttribute("aria-pressed","false");
-  syncPressed(typeChips,"c-",state.types); syncLevels(); syncDow(); updateRangeUI(); syncView();
+  openOnlyBtn.setAttribute("aria-pressed","false"); friendsOnlyBtn.setAttribute("aria-pressed","false"); mineOnlyBtn.setAttribute("aria-pressed","false");
+  syncPressed(typeChips,"c-",state.types); syncLevels(); syncDow(); syncWomen(); updateRangeUI(); syncView();
   render();   // note: does not clear your identity (me) or friends list
 }
 
