@@ -206,7 +206,7 @@
   .empty b{color:var(--ink);font-weight:700;display:block;font-size:17px;margin-bottom:6px}
 
   /* mobile: tap-a-day calendar */
-  .daypanel{display:none;margin-top:14px}
+  .daypanel{display:none;margin-top:14px;scroll-margin-top:72px}   /* clear the sticky filter bar when scrolled to */
   .daypanel .daygrp{margin-bottom:14px}
   .daypanel .daygrp:last-child{margin-bottom:0}
   .panelcap{font-size:12px;color:var(--muted);font-weight:600;padding:0 2px 10px}
@@ -221,7 +221,8 @@
     align-items:center;justify-content:center;z-index:100;padding:20px}
   .scrim.open{display:flex}
   .sheet{background:var(--card);border-radius:16px;max-width:440px;width:100%;
-    box-shadow:0 24px 64px rgba(16,23,37,.32);overflow:hidden;animation:pop .18s ease}
+    box-shadow:0 24px 64px rgba(16,23,37,.32);overflow-y:auto;overscroll-behavior:contain;
+    max-height:calc(100vh - 40px);max-height:calc(100dvh - 40px);animation:pop .18s ease}
   @keyframes pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
   @media(prefers-reduced-motion:reduce){.sheet{animation:none}}
   .sheet .top{padding:20px 22px 18px;border-bottom:1px solid var(--hair-2)}
@@ -234,6 +235,11 @@
   .drow .k{width:96px;flex:none;color:var(--muted);font-weight:700;font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding-top:2px}
   .drow .v{color:var(--ink);font-weight:500}
   .drow .v .hint{color:var(--muted);font-weight:500}
+  .meter{height:6px;border-radius:3px;background:var(--hair-2);margin-top:8px;overflow:hidden;max-width:240px}
+  .meter span{display:block;height:100%;border-radius:3px;background:var(--c-social)}
+  .meter.hot span{background:var(--c-clinic)}
+  .meter.full span{background:var(--full)}
+  .courtsnote{font-size:12px;color:var(--muted);margin-top:5px}
   .sheet .foot{padding:16px 22px 20px;display:flex;gap:10px;align-items:center}
   .book{flex:1;background:var(--brand);color:#fff;text-decoration:none;text-align:center;font-weight:700;font-size:15px;
     padding:12px 16px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s}
@@ -272,6 +278,9 @@
   .me-results .pick{margin-left:auto;border:1px solid var(--brand);background:var(--card);color:var(--brand);border-radius:7px;padding:4px 10px;cursor:pointer;font-weight:600;font-size:12px}
   .roster{padding:2px 22px 6px}
   .roster .rhd{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:8px 0}
+  .livehint{color:var(--muted-2);font-weight:600;letter-spacing:.02em;text-transform:none;animation:pulse 1.2s ease infinite}
+  @keyframes pulse{50%{opacity:.4}}
+  @media(prefers-reduced-motion:reduce){.livehint{animation:none}}
   .roster ul{list-style:none;margin:0;padding:0;max-height:210px;overflow:auto;display:flex;flex-direction:column;gap:1px}
   .roster li{display:flex;align-items:center;gap:9px;padding:5px 6px;border-radius:8px}
   .roster li.isfriend{background:var(--c-open-b)}
@@ -301,9 +310,28 @@
     .daypanel.on{display:block}
     .row{grid-template-columns:88px 1fr;gap:10px}
     .row .rright{grid-column:1 / -1;flex-direction:row;justify-content:space-between;align-items:center}
-    .legend{min-width:0}
+    /* compact hero: legend becomes one wrapping row, tighter padding */
+    .hero-in{padding:22px 20px 20px;gap:16px}
+    .legend{min-width:0;flex-direction:row;flex-wrap:wrap;gap:7px 16px}
+    .eyebrow{letter-spacing:.13em}
+    /* comfortable touch targets (≥40px) */
+    .iconbtn{width:40px;height:40px}
+    .seg button{padding:10px 15px;font-size:13.5px}
+    .lvl-btn{height:38px;padding:0 13px}
+    .dow-btn{width:38px;height:38px}
+    .toggle{padding:10px 14px}
+    .reset{padding:10px 6px}
+    .star{width:40px;height:40px;font-size:19px}
+    .range{height:38px}
+    .range input{height:26px}
+    .range input::-webkit-slider-thumb{width:24px;height:24px}
+    .range input::-moz-range-thumb{width:24px;height:24px}
+    /* 16px inputs so iOS Safari doesn't auto-zoom on focus */
+    .search,.viewname,.me-search{font-size:16px}
     /* collapsible filters: slim bar (Filters + view) stays; the rest folds away */
     .controls-in{gap:0}
+    .crow-top{flex-wrap:nowrap}
+    .crow-top .spacer{flex:1 1 0}
     .filttoggle{display:inline-flex;align-items:center;gap:9px;font-family:inherit;font-size:14px;font-weight:700;
       color:var(--ink);background:var(--card);border:1px solid var(--hair);border-radius:9px;padding:9px 15px;cursor:pointer}
     .filttoggle .fcount{background:var(--brand);color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;min-width:18px;text-align:center}
@@ -467,10 +495,20 @@ function timeLabelFull(iso){ const o=partsOf(iso); return o.hour+":"+o.minute+" 
 function todayKey(){ const o={}; fmt({year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).forEach(p=>o[p.type]=p.value); return o.year+"-"+o.month+"-"+o.day; }
 function minLabel(m){ let h=Math.floor(m/60), mm=m%60; const ap=h>=12?"PM":"AM"; let hh=h%12; if(hh===0)hh=12; return hh+":"+String(mm).padStart(2,"0")+" "+ap; }
 function ratingText(e){ if(e.minRating==null && e.maxRating==null) return "Open"; return (e.minRating!=null?e.minRating:"")+"–"+(e.maxRating!=null?e.maxRating:""); }
+// capacity is courts × 6, so raw "spots left" hides how full a session really is:
+// 6 left of 12 is a half-empty court; 6 left of 64 is nearly packed. Show % full.
+function pctFull(e){ return e.capacity ? Math.round(((e.signedUp||0)/e.capacity)*100) : null; }
 function availText(e){
   if(e.spotsLeft===null) return "Open registration";
   if(e.spotsLeft===0) return e.full?"Full — join the waitlist":"Full";
-  return e.spotsLeft+" of "+e.capacity+" spots left";
+  return e.spotsLeft+" of "+e.capacity+" spots left"+(e.signedUp?" · "+pctFull(e)+"% full":"");
+}
+function meterHtml(e){
+  const pct=pctFull(e); if(pct===null) return "";
+  const courts=(e.capacity>0 && e.capacity%6===0)?e.capacity/6:null;
+  const cls=pct>=100?" full":(pct>=80?" hot":"");
+  return '<div class="meter'+cls+'" role="img" aria-label="'+pct+'% full"><span style="width:'+Math.min(100,pct)+'%"></span></div>'
+    +(courts?'<div class="courtsnote">'+courts+' court'+(courts===1?"":"s")+' · 6 players per court</div>':"");
 }
 
 // ---- module state, filled by boot() ----
@@ -900,9 +938,14 @@ function renderMonth(){
   else { dayPanel.classList.remove("on"); dayPanel.innerHTML=""; }
 }
 function selectDay(key){
-  if(selDays.has(key)) selDays.delete(key); else selDays.add(key);   // multi-select: toggle
+  const adding=!selDays.has(key);
+  if(adding) selDays.add(key); else selDays.delete(key);   // multi-select: toggle
   [...weeks.children].forEach(c=>{ const on=selDays.has(c.dataset.k); c.classList.toggle("sel", on); if(c.hasAttribute("role")) c.setAttribute("aria-pressed", on?"true":"false"); });
   renderDayPanel();
+  // adding a day with the panel out of sight → bring it into view (removals keep the calendar put)
+  if(adding && dayPanel.getBoundingClientRect().top > innerHeight-120){
+    dayPanel.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion:reduce)").matches?"auto":"smooth",block:"start"});
+  }
 }
 function renderDayPanel(){
   dayPanel.innerHTML="";
@@ -933,9 +976,11 @@ function renderDayPanel(){
 function rowEl(e){
   const ms0=myStatus(e);
   const r=document.createElement("div"); r.className="row cat-"+e.cat+(ms0?(ms0.t==="in"?" mine":" minewl"):""); r.onclick=()=>openSheet(e);
-  const spots = e.spotsLeft===null ? "" :
+  const pct=pctFull(e);
+  // your own ✓/◷ badge already says what matters — a red "Waitlist" next to "You're in" reads as a conflict
+  const spots = (ms0 || e.spotsLeft===null) ? "" :
     (e.spotsLeft===0 ? '<span class="spots none">'+(e.full?"Waitlist":"Full")+'</span>'
-                     : '<span class="spots'+(e.spotsLeft<=4?" low":"")+'">'+e.spotsLeft+' spot'+(e.spotsLeft===1?"":"s")+' left</span>');
+                     : '<span class="spots'+(pct>=80||e.spotsLeft<=2?" low":"")+'">'+e.spotsLeft+' spot'+(e.spotsLeft===1?"":"s")+' left'+(e.signedUp?' · '+pct+'% full':'')+'</span>');
   const price = (e.regular && e.regular>0) ? '<span class="price num">$'+e.regular.toFixed(2).replace(/\.00$/,"")+'</span>' : '<span class="price">Free</span>';
   const fc=friendCountIn(e);
   const fbadge = fc ? '<span class="fbadge">★ '+fc+' friend'+(fc===1?"":"s")+'</span>' : "";
@@ -959,7 +1004,9 @@ function renderList(){
   const list=curList; listEl.innerHTML=""; grid.hidden=true; monthbar.style.display="none";
   dayPanel.classList.remove("on"); dayPanel.innerHTML="";
   if(!list.length){ emptyEl.hidden=false; listEl.style.display="none";
-    emptyEl.innerHTML="<b>No sessions match these filters</b>Turn a filter back on, widen the time range, or reset."; return; }
+    emptyEl.innerHTML="<b>No sessions match</b>"+(state.search
+      ? "Nothing matches “"+esc(state.search)+"” — clear the search or widen your filters."
+      : "Turn a filter back on, widen the time range, or reset."); return; }
   emptyEl.hidden=true; listEl.style.display="flex";
   const byDay={}; list.forEach(e=>(byDay[e.dk]=byDay[e.dk]||[]).push(e));
   Object.keys(byDay).sort().forEach(key=>{
@@ -1075,7 +1122,7 @@ function openSheet(e){
       drow("Skill","DUPR "+ratingText(e)+' <span class="hint">· Doubles</span>')+
       drow("Location","Apex Pickleball Clubs"+(e.podAddress?'<br><span class="hint">'+e.podAddress+'</span>':""))+
       drow("Price", price)+
-      drow("Availability", '<span id="availVal">'+availText(e)+'</span>')+
+      drow("Availability", '<div id="availWrap"><span id="availVal">'+availText(e)+'</span>'+meterHtml(e)+'</div>')+
     '</div>'+
     rosterHtml(e)+
     '<div class="foot">'+
@@ -1089,12 +1136,18 @@ function openSheet(e){
   document.getElementById("x").focus();
   // live-refresh this session's roster so your status / who's going is exact-now
   if(e.signedUp && !e._live){
+    const hd=sheet.querySelector("#rosterBox .rhd");
+    if(hd) hd.insertAdjacentHTML("beforeend",' <span class="livehint">updating…</span>');
     refreshRoster(e).then(ok=>{
-      if(ok && sheetEvent===e && scrim.classList.contains("open")){
+      if(sheetEvent!==e || !scrim.classList.contains("open")) return;
+      if(ok){
         const box=sheet.querySelector("#rosterBox");
-        if(box){ box.outerHTML=rosterHtml(e); wireStars(); }
-        const av=sheet.querySelector("#availVal"); if(av) av.textContent=availText(e);   // live spots/waitlist
+        if(box){ box.outerHTML=rosterHtml(e); wireStars(); }   // fresh roster markup drops the hint too
+        const av=sheet.querySelector("#availWrap");   // live spots/waitlist + fullness meter
+        if(av) av.innerHTML='<span id="availVal">'+availText(e)+'</span>'+meterHtml(e);
         render();   // refresh badges/counts behind the modal
+      } else {
+        const h=sheet.querySelector(".livehint"); if(h) h.remove();   // refresh failed → baked data stands
       }
     });
   }
@@ -1124,7 +1177,7 @@ function wire(){
   openOnlyBtn.onclick=()=>{ state.openOnly=!state.openOnly; openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false"); saveState(); render(); };
   friendsOnlyBtn.onclick=()=>{ state.friendsOnly=!state.friendsOnly; friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false"); saveState(); render(); };
   mineOnlyBtn.onclick=()=>{ if(!me){ openPeople(); return; } state.mineOnly=!state.mineOnly; mineOnlyBtn.setAttribute("aria-pressed", state.mineOnly?"true":"false"); saveState(); render(); };
-  manageFriendsBtn.onclick=openPeople;
+  manageFriendsBtn.onclick=()=>openPeople();
   filtToggle.onclick=()=>{ const open=controlsEl.classList.toggle("open"); filtToggle.setAttribute("aria-expanded", open?"true":"false"); };
   syncFriendsUI();
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
