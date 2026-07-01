@@ -289,7 +289,13 @@
     .filterbody{display:none}
     .controls.open .filterbody{display:block;max-height:66vh;overflow-y:auto;padding-top:11px}
     .controls.open .filterbody .crow2:first-child{border-top:0;padding-top:0}
-    .filterbody .crow{padding-bottom:2px}
+    /* stack cleanly on mobile: no flex spacers pushing items apart; labels sit above full-width controls */
+    .filterbody .spacer{display:none}
+    .filterbody .crow{gap:12px;padding-bottom:2px}
+    .filterbody .fld{flex-direction:column;align-items:flex-start;gap:8px;width:100%}
+    .filterbody .search{width:100%;max-width:none}
+    .filterbody .range{width:100%}
+    .filterbody .time-label{min-width:0}
   }
 </style>
 </head>
@@ -451,7 +457,7 @@ let friends=new Map();   // id -> name
 function loadFriends(){ try{ const a=JSON.parse(localStorage.getItem(FRIENDS_KEY)); if(Array.isArray(a)) a.forEach(f=>{ if(f&&f.id) friends.set(f.id, f.name||""); }); }catch(e){} }
 function saveFriends(){ try{ localStorage.setItem(FRIENDS_KEY, JSON.stringify([...friends].map(([id,name])=>({id,name})))); }catch(e){} }
 function toggleFriend(id,name){ if(friends.has(id)) friends.delete(id); else friends.set(id,name); saveFriends(); }
-function friendCountIn(e){ if(!e._attIds) return 0; let c=0; for(const id of friends.keys()) if(e._attIds.has(id)) c++; return c; }
+function friendCountIn(e){ if(!e._attIds) return 0; const myId=me&&me.id; let c=0; for(const id of friends.keys()) if(id!==myId && e._attIds.has(id)) c++; return c; }
 
 // ---- "me": self-identification (no login) — matches your profile id in the baked rosters ----
 const ME_KEY="apex-podplay-me";
@@ -892,8 +898,10 @@ let lastFocus=null, sheetEvent=null;
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function personLi(p){
   const on=friends.has(p.id), isme=!!(me&&me.id===p.id), nm=esc(p.name||"Member");
-  return '<li class="'+(isme?"isme ":"")+(on?"isfriend":"")+'">'
-    +'<button class="star" data-id="'+esc(p.id)+'" data-name="'+esc(p.name||"")+'" aria-pressed="'+(on?"true":"false")+'" aria-label="Follow '+nm+'">'+(on?"★":"☆")+'</button>'
+  const star = isme
+    ? '<span class="star" aria-hidden="true"></span>'   // you can't follow yourself
+    : '<button class="star" data-id="'+esc(p.id)+'" data-name="'+esc(p.name||"")+'" aria-pressed="'+(on?"true":"false")+'" aria-label="Follow '+nm+'">'+(on?"★":"☆")+'</button>';
+  return '<li class="'+(isme?"isme ":"")+(on?"isfriend":"")+'">'+star
     +'<span class="pn">'+nm+'</span>'+(isme?'<span class="metag">You</span>':'')+'</li>';
 }
 function sortRoster(list){ return [...list].sort((a,b)=>{
@@ -959,7 +967,7 @@ function openPeople(onboarding){
       results.innerHTML = matches.length
         ? matches.map(([id,name])=>'<li><span class="pn">'+esc(name)+'</span><button class="pick" data-id="'+esc(id)+'" data-name="'+esc(name)+'">This is me</button></li>').join("")
         : '<li class="unavail">No players match. You must have signed up for a recent session to appear here.</li>';
-      results.querySelectorAll(".pick").forEach(b=>{ b.onclick=()=>{ me={id:b.dataset.id,name:b.dataset.name}; saveMe(); syncFriendsUI(); render(); openPeople(); }; });
+      results.querySelectorAll(".pick").forEach(b=>{ b.onclick=()=>{ me={id:b.dataset.id,name:b.dataset.name}; if(friends.delete(me.id)) saveFriends(); saveMe(); syncFriendsUI(); render(); openPeople(); }; });
     };
     meSearch.addEventListener("input", renderMatches);
     setTimeout(()=>meSearch.focus(),0);
