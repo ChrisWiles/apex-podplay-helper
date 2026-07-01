@@ -292,7 +292,7 @@
 const TZ = "America/Chicago";
 const BOOK = id => "https://apexpbclubs.podplay.app/community/events/" + id;
 const LS_KEY = "apex-podplay-filters";
-const LS_V = 2;
+const LS_V = 3;
 
 const CATS = {
   openplay: {label:"Open Play", color:"var(--c-open)"},
@@ -377,7 +377,7 @@ function boot(payload){
 
   state = {
     types: new Set(Object.keys(CATS)),
-    levels: new Set(LEVEL_KEYS),
+    levels: new Set(["all"]),
     days: new Set([0,1,2,3,4,5,6]),
     tMin: T_FLOOR, tMax: T_CEIL,
     view: "month", month: null,
@@ -408,7 +408,7 @@ function loadState(){
   let s; try{ s=JSON.parse(localStorage.getItem(LS_KEY)); }catch(e){ return; }
   if(!s || s.v!==LS_V) return;
   if(Array.isArray(s.types)){ const t=s.types.filter(k=>CATS[k]); if(t.length) state.types=new Set(t); }
-  if(Array.isArray(s.levels)){ const ok=new Set(LEVEL_KEYS); const l=s.levels.filter(k=>ok.has(k)); if(l.length) state.levels=new Set(l); }
+  if(Array.isArray(s.levels)){ const ok=new Set(LEVEL_KEYS); let l=s.levels.filter(k=>ok.has(k)); if(l.includes("all")) l=["all"]; if(l.length) state.levels=new Set(l); }
   if(Array.isArray(s.days)){ const d=s.days.filter(x=>x>=0&&x<=6); if(d.length) state.days=new Set(d); }
   if(typeof s.tMin==="number") state.tMin=Math.min(Math.max(s.tMin,T_FLOOR),T_CEIL);
   if(typeof s.tMax==="number") state.tMax=Math.min(Math.max(s.tMax,T_FLOOR),T_CEIL);
@@ -418,8 +418,8 @@ function loadState(){
 
 // ---- filtering ----
 function matchesLevel(e){
-  if(e.levelTokens.some(t=>state.levels.has(t))) return true;
-  return e.isOpen && state.levels.has("all");
+  if(state.levels.has("all")) return true;              // "All" = no level filtering
+  return e.levelTokens.some(t=>state.levels.has(t));
 }
 function passDayTimeLevel(e){ return matchesLevel(e) && state.days.has(e.dow) && e.mins>=state.tMin && e.mins<=state.tMax; }
 function filtered(){ return data.filter(e => state.types.has(e.cat) && passDayTimeLevel(e)); }
@@ -469,7 +469,7 @@ function buildLevelChips(){
     b.textContent = k==="all" ? "All" : "L"+k;
     b.title = k==="all" ? "All-levels / open sessions" : "Level "+k;
     b.setAttribute("aria-pressed", state.levels.has(k)?"true":"false");
-    b.onclick=()=>{ toggle(state.levels,k,LEVEL_KEYS); syncLevels(); saveState(); render(); };
+    b.onclick=()=>{ clickLevel(k); saveState(); render(); };
     lvlChips.appendChild(b);
   });
 }
@@ -501,6 +501,16 @@ function updateRangeUI(){
 function toggle(set,k,all){ if(set.has(k)) set.delete(k); else set.add(k); if(!set.size) all.forEach(x=>set.add(x)); }
 function syncPressed(container,prefix,set){ container.querySelectorAll("button").forEach(b=>{ const k=[...b.classList].find(x=>x.startsWith(prefix)).slice(prefix.length); b.setAttribute("aria-pressed", set.has(k)?"true":"false"); }); }
 function syncLevels(){ [...lvlChips.children].forEach(b=>b.setAttribute("aria-pressed", state.levels.has(b.dataset.k)?"true":"false")); }
+// "All" is exclusive: selecting it clears specific levels; selecting a specific level clears "All".
+function clickLevel(k){
+  if(k==="all"){ state.levels=new Set(["all"]); }
+  else{
+    state.levels.delete("all");
+    if(state.levels.has(k)) state.levels.delete(k); else state.levels.add(k);
+    if(!state.levels.size) state.levels=new Set(["all"]);   // emptied ⇒ back to All
+  }
+  syncLevels();
+}
 function syncDow(){ [...dowToggle.children].forEach((b,i)=>b.setAttribute("aria-pressed", state.days.has(i)?"true":"false")); }
 
 // ---- month nav ----
@@ -633,7 +643,7 @@ function wire(){
 }
 function resetFilters(){
   try{ localStorage.removeItem(LS_KEY); }catch(e){}
-  state.types=new Set(Object.keys(CATS)); state.levels=new Set(LEVEL_KEYS);
+  state.types=new Set(Object.keys(CATS)); state.levels=new Set(["all"]);
   state.days=new Set([0,1,2,3,4,5,6]); state.tMin=T_FLOOR; state.tMax=T_CEIL; state.view="month";
   tmin.value=T_FLOOR; tmax.value=T_CEIL;
   syncPressed(typeChips,"c-",state.types); syncLevels(); syncDow(); updateRangeUI(); syncView();
