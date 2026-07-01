@@ -329,6 +329,7 @@
     /* 16px inputs so iOS Safari doesn't auto-zoom on focus */
     .search,.viewname,.me-search{font-size:16px}
     /* collapsible filters: slim bar (Filters + view) stays; the rest folds away */
+    body.filters-open header.hero{display:none}   /* expanded panel gets the whole screen */
     .controls-in{gap:0}
     .crow-top{flex-wrap:nowrap}
     .crow-top .spacer{flex:1 1 0}
@@ -1178,7 +1179,9 @@ function wire(){
   friendsOnlyBtn.onclick=()=>{ state.friendsOnly=!state.friendsOnly; friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false"); saveState(); render(); };
   mineOnlyBtn.onclick=()=>{ if(!me){ openPeople(); return; } state.mineOnly=!state.mineOnly; mineOnlyBtn.setAttribute("aria-pressed", state.mineOnly?"true":"false"); saveState(); render(); };
   manageFriendsBtn.onclick=()=>openPeople();
-  filtToggle.onclick=()=>{ const open=controlsEl.classList.toggle("open"); filtToggle.setAttribute("aria-expanded", open?"true":"false"); };
+  filtToggle.onclick=()=>{ const open=controlsEl.classList.toggle("open"); filtToggle.setAttribute("aria-expanded", open?"true":"false");
+    document.body.classList.toggle("filters-open", open);   // mobile: hero hides so the panel gets the screen
+    if(open) window.scrollTo(0,0); };
   syncFriendsUI();
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
   document.addEventListener("keydown",ev=>{
