@@ -175,6 +175,14 @@
   .empty{padding:60px 20px;text-align:center;color:var(--muted)}
   .empty b{color:var(--ink);font-weight:700;display:block;font-size:17px;margin-bottom:6px}
 
+  /* mobile: tap-a-day calendar */
+  .daypanel{display:none;margin-top:14px}
+  .daydots{display:none}
+  .dot-c{width:6px;height:6px;border-radius:50%}
+  .dot-c.openplay{background:var(--c-open)} .dot-c.clinic{background:var(--c-clinic)}
+  .dot-c.social{background:var(--c-social)} .dot-c.special{background:var(--c-special)}
+  .paneln{padding:20px 18px;color:var(--muted);font-size:13.5px}
+
   /* modal */
   .scrim{position:fixed;inset:0;background:rgba(16,23,37,.5);backdrop-filter:blur(2px);display:none;
     align-items:center;justify-content:center;z-index:100;padding:20px}
@@ -203,9 +211,15 @@
   .note{font-size:11.5px;color:var(--muted-2);text-align:center;padding:0 22px 18px}
 
   @media(max-width:720px){
-    .weeks .en{display:none}
-    .ev{padding:3px 5px}
-    .row{grid-template-columns:96px 1fr;gap:10px}
+    .cell{min-height:54px;gap:5px;align-items:center;padding:7px 3px}
+    .cell .ev,.cell .more{display:none}
+    .dnum{align-self:center;font-size:13px}
+    .cell.today .dnum .tpill{padding:1px 6px}
+    .daydots{display:flex;flex-wrap:wrap;gap:3px;justify-content:center;min-height:7px;max-width:100%}
+    .cell.sel{background:#e7eefc;box-shadow:inset 0 0 0 2px var(--brand)}
+    .dow div{padding:9px 0;text-align:center;letter-spacing:.04em}
+    .daypanel.on{display:block}
+    .row{grid-template-columns:88px 1fr;gap:10px}
     .row .rright{grid-column:1 / -1;flex-direction:row;justify-content:space-between;align-items:center}
     .legend{min-width:0}
   }
@@ -278,6 +292,7 @@
       <div class="dow"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div>
       <div class="weeks" id="weeks"></div>
     </div>
+    <div class="daypanel" id="dayPanel"></div>
     <div class="list" id="list"></div>
     <div class="empty" id="empty" hidden></div>
   </div>
@@ -291,6 +306,7 @@
 "use strict";
 const TZ = "America/Chicago";
 const BOOK = id => "https://apexpbclubs.podplay.app/community/events/" + id;
+const MQ = window.matchMedia("(max-width:720px)");   // mobile calendar breakpoint
 const LS_KEY = "apex-podplay-filters";
 
 const CATS = {
@@ -333,8 +349,8 @@ function minLabel(m){ let h=Math.floor(m/60), mm=m%60; const ap=h>=12?"PM":"AM";
 function ratingText(e){ if(e.minRating==null && e.maxRating==null) return "Open"; return (e.minRating!=null?e.minRating:"")+"–"+(e.maxRating!=null?e.maxRating:""); }
 
 // ---- module state, filled by boot() ----
-let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"];
-let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips;
+let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDay=null;
+let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel;
 
 // ---- load ----
 fetch("./events.json",{cache:"no-store"})
@@ -438,6 +454,7 @@ function cacheEls(){
   listEl=document.getElementById("list"); emptyEl=document.getElementById("empty");
   mlabel=document.getElementById("mlabel"); mcount=document.getElementById("mcount");
   monthbar=document.getElementById("monthbar"); scrim=document.getElementById("scrim"); sheet=document.getElementById("sheet");
+  dayPanel=document.getElementById("dayPanel");
   tmin=document.getElementById("tmin"); tmax=document.getElementById("tmax");
   rfill=document.getElementById("rfill"); timeLbl=document.getElementById("timeLabel");
   dowToggle=document.getElementById("dowToggle"); lvlChips=document.getElementById("lvlChips"); typeChips=document.getElementById("typeChips");
@@ -532,21 +549,38 @@ function renderMonth(){
   const {y,m}=state.month;
   const byDay={}; let monthTotal=0;
   list.forEach(e=>{const o=partsOf(e.start); if(+o.year===y && +o.month===m){(byDay[e.dk]=byDay[e.dk]||[]).push(e); monthTotal++;}});
+
+  const mobile=MQ.matches;
+  if(mobile){
+    const inMonth = selDay && +selDay.slice(0,4)===y && +selDay.slice(5,7)===m && byDay[selDay];
+    if(!inMonth) selDay = byDay[TODAY] ? TODAY : (Object.keys(byDay).sort()[0] || null);
+  }
+
   const first=new Date(y,m-1,1), start=new Date(y,m-1,1-first.getDay());
-  const lastDay=new Date(y,m,0).getDate(), rows=Math.ceil((first.getDay()+lastDay)/7);
-  for(let i=0;i<rows*7;i++){
+  const lastDay=new Date(y,m,0).getDate(), rowsN=Math.ceil((first.getDay()+lastDay)/7);
+  for(let i=0;i<rowsN*7;i++){
     const d=new Date(start); d.setDate(start.getDate()+i);
     const yy=d.getFullYear(), mm=String(d.getMonth()+1).padStart(2,"0"), dd=String(d.getDate()).padStart(2,"0");
-    const key=yy+"-"+mm+"-"+dd, out=(d.getMonth()!==m-1);
-    const cell=document.createElement("div"); cell.className="cell"+(out?" out":"")+(key===TODAY?" today":"");
+    const key=yy+"-"+mm+"-"+dd, out=(d.getMonth()!==m-1), evs=byDay[key]||[];
+    const cell=document.createElement("div");
+    cell.className="cell"+(out?" out":"")+(key===TODAY?" today":"")+(mobile&&key===selDay?" sel":"");
+    cell.dataset.k=key;
     const dn=document.createElement("div"); dn.className="dnum";
     dn.innerHTML = key===TODAY ? '<span class="tpill">'+d.getDate()+'</span>' : String(d.getDate());
     cell.appendChild(dn);
-    const evs=byDay[key]||[]; evs.slice(0,4).forEach(e=>cell.appendChild(evChip(e)));
-    if(evs.length>4){
-      const more=document.createElement("button"); more.className="more"; more.textContent="+"+(evs.length-4)+" more";
-      more.onclick=()=>{ state.view="list"; syncView(); saveState(); render(); setTimeout(()=>{const el=document.getElementById("d-"+key); if(el) el.scrollIntoView({behavior:"smooth",block:"start"});},30); };
-      cell.appendChild(more);
+    if(mobile){
+      const dots=document.createElement("div"); dots.className="daydots";
+      const cats=new Set(evs.map(e=>e.cat));
+      ["openplay","clinic","social","special"].forEach(c=>{ if(cats.has(c)){ const s=document.createElement("span"); s.className="dot-c "+c; dots.appendChild(s); } });
+      cell.appendChild(dots);
+      if(evs.length) cell.onclick=()=>selectDay(key);
+    } else {
+      evs.slice(0,4).forEach(e=>cell.appendChild(evChip(e)));
+      if(evs.length>4){
+        const more=document.createElement("button"); more.className="more"; more.textContent="+"+(evs.length-4)+" more";
+        more.onclick=()=>{ state.view="list"; syncView(); saveState(); render(); setTimeout(()=>{const el=document.getElementById("d-"+key); if(el) el.scrollIntoView({behavior:"smooth",block:"start"});},30); };
+        cell.appendChild(more);
+      }
     }
     weeks.appendChild(cell);
   }
@@ -556,9 +590,47 @@ function renderMonth(){
   document.getElementById("prev").disabled = idx<=0;
   document.getElementById("next").disabled = idx>=months.length-1;
   grid.hidden=false; listEl.style.display="none"; emptyEl.hidden=true; monthbar.style.display="flex";
+  if(mobile){ renderDayPanel(selDay); dayPanel.classList.add("on"); }
+  else { dayPanel.classList.remove("on"); dayPanel.innerHTML=""; }
+}
+function selectDay(key){
+  selDay=key;
+  [...weeks.children].forEach(c=>c.classList.toggle("sel", c.dataset.k===key));
+  renderDayPanel(key);
+  dayPanel.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+function renderDayPanel(key){
+  dayPanel.innerHTML="";
+  if(!key) return;
+  const evs=filtered().filter(e=>e.dk===key).sort((a,b)=>a.start_ms-b.start_ms);
+  const [Y,M,D]=key.split("-").map(Number); const dObj=new Date(Y,M-1,D);
+  const grp=document.createElement("div"); grp.className="daygrp";
+  const hd=document.createElement("div"); hd.className="dayhd";
+  hd.innerHTML='<span class="dd">'+dObj.toLocaleDateString("en-US",{month:"long",day:"numeric"})+'</span>'+
+               '<span class="dw">'+dObj.toLocaleDateString("en-US",{weekday:"long"})+'</span>'+
+               '<span class="dc num">'+evs.length+' session'+(evs.length===1?"":"s")+'</span>';
+  grp.appendChild(hd);
+  if(evs.length){ const rows=document.createElement("div"); rows.className="rows"; evs.forEach(e=>rows.appendChild(rowEl(e))); grp.appendChild(rows); }
+  else { const em=document.createElement("div"); em.className="paneln"; em.textContent="No sessions match your filters on this day."; grp.appendChild(em); }
+  dayPanel.appendChild(grp);
+}
+function rowEl(e){
+  const r=document.createElement("div"); r.className="row cat-"+e.cat; r.onclick=()=>openSheet(e);
+  const spots = e.spotsLeft===null ? "" :
+    (e.spotsLeft===0 ? '<span class="spots none">'+(e.full?"Waitlist":"Full")+'</span>'
+                     : '<span class="spots'+(e.spotsLeft<=4?" low":"")+'">'+e.spotsLeft+' spot'+(e.spotsLeft===1?"":"s")+' left</span>');
+  const price = (e.regular && e.regular>0) ? '<span class="price num">$'+e.regular.toFixed(2).replace(/\.00$/,"")+'</span>' : '<span class="price">Free</span>';
+  r.innerHTML=
+    '<div class="rtime num">'+timeLabelFull(e.start)+'<span>'+timeLabelFull(e.end)+'</span></div>'+
+    '<div><div class="rname">'+e.name+'</div><div class="rmeta">'+
+      '<span class="badge b-'+e.cat+'">'+CATS[e.cat].label+'</span>'+
+      '<span>DUPR '+ratingText(e)+'</span></div></div>'+
+    '<div class="rright">'+price+spots+'</div>';
+  return r;
 }
 function renderList(){
   const list=filtered(); listEl.innerHTML=""; grid.hidden=true; monthbar.style.display="none";
+  dayPanel.classList.remove("on"); dayPanel.innerHTML="";
   if(!list.length){ emptyEl.hidden=false; listEl.style.display="none";
     emptyEl.innerHTML="<b>No sessions match these filters</b>Turn a filter back on, widen the time range, or reset."; return; }
   emptyEl.hidden=true; listEl.style.display="flex";
@@ -572,20 +644,7 @@ function renderList(){
                  '<span class="dc num">'+evs.length+' session'+(evs.length===1?"":"s")+'</span>';
     grp.appendChild(hd);
     const rows=document.createElement("div"); rows.className="rows";
-    evs.forEach(e=>{
-      const r=document.createElement("div"); r.className="row cat-"+e.cat; r.onclick=()=>openSheet(e);
-      const spots = e.spotsLeft===null ? "" :
-        (e.spotsLeft===0 ? '<span class="spots none">'+(e.full?"Waitlist":"Full")+'</span>'
-                         : '<span class="spots'+(e.spotsLeft<=4?" low":"")+'">'+e.spotsLeft+' spot'+(e.spotsLeft===1?"":"s")+' left</span>');
-      const price = (e.regular && e.regular>0) ? '<span class="price num">$'+e.regular.toFixed(2).replace(/\.00$/,"")+'</span>' : '<span class="price">Free</span>';
-      r.innerHTML=
-        '<div class="rtime num">'+timeLabelFull(e.start)+'<span>'+timeLabelFull(e.end)+'</span></div>'+
-        '<div><div class="rname">'+e.name+'</div><div class="rmeta">'+
-          '<span class="badge b-'+e.cat+'">'+CATS[e.cat].label+'</span>'+
-          '<span>DUPR '+ratingText(e)+'</span></div></div>'+
-        '<div class="rright">'+price+spots+'</div>';
-      rows.appendChild(r);
-    });
+    evs.forEach(e=>rows.appendChild(rowEl(e)));
     grp.appendChild(rows); listEl.appendChild(grp);
   });
 }
@@ -639,6 +698,7 @@ function wire(){
   document.getElementById("reset").onclick=resetFilters;
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
   document.addEventListener("keydown",ev=>{ if(ev.key==="Escape"&&scrim.classList.contains("open"))closeSheet(); });
+  MQ.addEventListener("change",()=>{ selDay=null; render(); });   // re-render when crossing the mobile breakpoint
 }
 function resetFilters(){
   try{ localStorage.removeItem(LS_KEY); }catch(e){}
