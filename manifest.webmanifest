@@ -1,0 +1,13 @@
+{
+  "name": "Apex PodPlay Helper",
+  "short_name": "Apex Sessions",
+  "description": "Browse and book Apex Pickleball Clubs sessions — open play, clinics, and socials.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101725",
+  "theme_color": "#101725",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

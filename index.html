@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Apex PodPlay Helper</title>
 <meta name="description" content="Browse and book every Apex Pickleball Clubs session — open play, clinics, and socials — filtered by level, type, day, and time.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#101725">
 <style>
   :root{
     --ink:#101725; --ink-soft:#26324a; --muted:#5b6b82; --muted-2:#8a97ab;
@@ -78,6 +82,16 @@
   .reset{font-family:inherit;font-size:12.5px;font-weight:600;color:var(--muted);background:none;border:0;
     cursor:pointer;padding:6px 4px;text-decoration:underline;text-underline-offset:3px}
   .reset:hover{color:var(--brand)}
+  .search{font-family:inherit;font-size:13px;color:var(--ink-soft);background:var(--card);border:1px solid var(--hair);
+    border-radius:8px;padding:7px 11px;width:200px;max-width:48vw}
+  .search::placeholder{color:var(--muted-2)}
+  .toggle{font-family:inherit;font-size:13px;font-weight:600;color:var(--ink-soft);background:var(--card);
+    border:1px solid var(--hair);border-radius:999px;padding:7px 13px;cursor:pointer;display:flex;align-items:center;gap:7px;line-height:1;
+    transition:background .15s,border-color .15s,color .15s}
+  .toggle .tk{width:8px;height:8px;border-radius:50%;background:var(--muted-2)}
+  .toggle[aria-pressed="true"]{background:var(--c-social);color:#fff;border-color:transparent}
+  .toggle[aria-pressed="true"] .tk{background:#fff}
+  .search:focus-visible,.toggle:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 
   /* level + day toggles */
   .lvl-toggle,.dow-toggle{display:flex;gap:5px;flex-wrap:wrap}
@@ -251,6 +265,7 @@
       <div class="crow">
         <div class="chips" id="typeChips"></div>
         <div class="spacer"></div>
+        <input class="search" id="search" type="search" placeholder="Search sessions…" aria-label="Search sessions">
         <div class="seg" role="group" aria-label="View">
           <button id="v-month" aria-pressed="true">Month</button>
           <button id="v-list" aria-pressed="false">List</button>
@@ -279,6 +294,7 @@
           <span class="time-label num" id="timeLabel"></span>
         </div>
         <div class="spacer"></div>
+        <button class="toggle" id="openOnly" type="button" aria-pressed="false"><span class="tk"></span>Open spots only</button>
         <button class="reset" id="reset" type="button">Reset filters</button>
       </div>
     </div>
@@ -362,7 +378,7 @@ function ratingText(e){ if(e.minRating==null && e.maxRating==null) return "Open"
 
 // ---- module state, filled by boot() ----
 let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null;
-let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel;
+let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn;
 
 // ---- load ----
 fetch("./events.json",{cache:"no-store"})
@@ -408,6 +424,8 @@ function boot(payload){
     days: new Set([0,1,2,3,4,5,6]),
     tMin: T_FLOOR, tMax: T_CEIL,
     view: "month", month: null,
+    openOnly: false,   // persisted
+    search: "",        // transient (not persisted)
   };
   loadState();
 
@@ -429,7 +447,7 @@ function boot(payload){
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify({
     types:[...state.types], levels:[...state.levels], days:[...state.days],
-    tMin:state.tMin, tMax:state.tMax, view:state.view })); }catch(e){}
+    tMin:state.tMin, tMax:state.tMax, view:state.view, openOnly:state.openOnly })); }catch(e){}
 }
 function loadState(){
   let s; try{ s=JSON.parse(localStorage.getItem(LS_KEY)); }catch(e){ return; }
@@ -441,6 +459,7 @@ function loadState(){
   if(typeof s.tMax==="number") state.tMax=Math.min(Math.max(s.tMax,T_FLOOR),T_CEIL);
   if(state.tMin>state.tMax){ state.tMin=T_FLOOR; state.tMax=T_CEIL; }
   if(s.view==="list"||s.view==="month") state.view=s.view;
+  if(typeof s.openOnly==="boolean") state.openOnly=s.openOnly;
 }
 
 // ---- filtering ----
@@ -448,12 +467,19 @@ function matchesLevel(e){
   if(state.levels.has("all")) return true;              // "All" = no level filtering
   return e.levelTokens.some(t=>state.levels.has(t));
 }
-function passDayTimeLevel(e){ return matchesLevel(e) && state.days.has(e.dow) && e.mins>=state.tMin && e.mins<=state.tMax; }
-function filtered(){ return data.filter(e => state.types.has(e.cat) && passDayTimeLevel(e)); }
+// everything except the type toggles (so type-chip counts stay meaningful)
+function passNonType(e){
+  return matchesLevel(e)
+    && state.days.has(e.dow)
+    && e.mins>=state.tMin && e.mins<=state.tMax
+    && (!state.openOnly || e.spotsLeft===null || e.spotsLeft>0)
+    && (!state.search || e.name.toLowerCase().includes(state.search));
+}
+function filtered(){ return data.filter(e => state.types.has(e.cat) && passNonType(e)); }
 
 function updateCounts(){
   const c={}; Object.keys(CATS).forEach(k=>c[k]=0);
-  data.filter(passDayTimeLevel).forEach(e=>c[e.cat]++);
+  data.filter(passNonType).forEach(e=>c[e.cat]++);
   typeChips.querySelectorAll(".chip").forEach(b=>{
     const k=[...b.classList].find(x=>x.startsWith("c-")).slice(2);
     const cn=b.querySelector(".cn"); if(cn) cn.textContent=c[k];
@@ -470,6 +496,7 @@ function cacheEls(){
   tmin=document.getElementById("tmin"); tmax=document.getElementById("tmax");
   rfill=document.getElementById("rfill"); timeLbl=document.getElementById("timeLabel");
   dowToggle=document.getElementById("dowToggle"); lvlChips=document.getElementById("lvlChips"); typeChips=document.getElementById("typeChips");
+  searchEl=document.getElementById("search"); openOnlyBtn=document.getElementById("openOnly");
 }
 
 // ---- build controls ----
@@ -721,6 +748,10 @@ function wire(){
   document.getElementById("prev").onclick=()=>{const i=months.indexOf(state.month.y+"-"+String(state.month.m).padStart(2,"0"));if(i>0){setMonth(months[i-1]);render();}};
   document.getElementById("next").onclick=()=>{const i=months.indexOf(state.month.y+"-"+String(state.month.m).padStart(2,"0"));if(i<months.length-1){setMonth(months[i+1]);render();}};
   document.getElementById("reset").onclick=resetFilters;
+  searchEl.value=state.search;
+  searchEl.addEventListener("input",()=>{ state.search=searchEl.value.trim().toLowerCase(); render(); });   // transient, not persisted
+  openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false");
+  openOnlyBtn.onclick=()=>{ state.openOnly=!state.openOnly; openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false"); saveState(); render(); };
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
   document.addEventListener("keydown",ev=>{ if(ev.key==="Escape"&&scrim.classList.contains("open"))closeSheet(); });
   MQ.addEventListener("change",()=>{ selDays=new Set(); defaultedMonth=null; render(); });   // re-render when crossing the mobile breakpoint
@@ -729,10 +760,14 @@ function resetFilters(){
   try{ localStorage.removeItem(LS_KEY); }catch(e){}
   state.types=new Set(Object.keys(CATS)); state.levels=new Set(["all"]);
   state.days=new Set([0,1,2,3,4,5,6]); state.tMin=T_FLOOR; state.tMax=T_CEIL; state.view="month";
-  tmin.value=T_FLOOR; tmax.value=T_CEIL;
+  state.openOnly=false; state.search="";
+  tmin.value=T_FLOOR; tmax.value=T_CEIL; searchEl.value=""; openOnlyBtn.setAttribute("aria-pressed","false");
   syncPressed(typeChips,"c-",state.types); syncLevels(); syncDow(); updateRangeUI(); syncView();
   render();
 }
+
+// ---- PWA: install + offline ----
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{})); }
 </script>
 </body>
 </html>
