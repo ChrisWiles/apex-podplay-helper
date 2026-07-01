@@ -57,6 +57,9 @@
   .controls-in{max-width:1200px;margin:0 auto;padding:11px 20px;display:flex;flex-direction:column;gap:11px}
   .crow{display:flex;flex-wrap:wrap;gap:11px 16px;align-items:center}
   .crow2{border-top:1px solid var(--hair-2);padding-top:11px}
+  /* mobile filter collapse: hidden on desktop (filters always shown) */
+  .filttoggle{display:none}
+  .fcount:empty{display:none}
   .chips{display:flex;flex-wrap:wrap;gap:7px}
   .chip{border:1px solid var(--hair);background:var(--card);color:var(--ink-soft);
     padding:7px 13px 7px 11px;border-radius:999px;font-size:13px;font-weight:600;cursor:pointer;
@@ -278,6 +281,15 @@
     .row{grid-template-columns:88px 1fr;gap:10px}
     .row .rright{grid-column:1 / -1;flex-direction:row;justify-content:space-between;align-items:center}
     .legend{min-width:0}
+    /* collapsible filters: slim bar (Filters + view) stays; the rest folds away */
+    .controls-in{gap:0}
+    .filttoggle{display:inline-flex;align-items:center;gap:8px;font-family:inherit;font-size:14px;font-weight:700;
+      color:var(--ink);background:var(--card);border:1px solid var(--hair);border-radius:9px;padding:9px 15px;cursor:pointer}
+    .filttoggle .fcount{background:var(--brand);color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;min-width:18px;text-align:center}
+    .filterbody{display:none}
+    .controls.open .filterbody{display:block;max-height:66vh;overflow-y:auto;padding-top:11px}
+    .controls.open .filterbody .crow2:first-child{border-top:0;padding-top:0}
+    .filterbody .crow{padding-bottom:2px}
   }
 </style>
 </head>
@@ -301,43 +313,49 @@
 <div id="app" hidden>
   <div class="controls">
     <div class="controls-in">
-      <div class="crow">
-        <div class="chips" id="typeChips"></div>
+      <div class="crow crow-top">
+        <button class="filttoggle" id="filtToggle" type="button" aria-controls="filterBody" aria-expanded="false">Filters<span class="fcount" id="filtCount"></span></button>
         <div class="spacer"></div>
-        <input class="search" id="search" type="search" placeholder="Search sessions…" aria-label="Search sessions">
         <div class="seg" role="group" aria-label="View">
           <button id="v-month" aria-pressed="true">Month</button>
           <button id="v-list" aria-pressed="false">List</button>
         </div>
       </div>
-      <div class="crow crow2">
-        <div class="fld">
-          <label>Level</label>
-          <div class="lvl-toggle" id="lvlChips" role="group" aria-label="Skill level"></div>
+      <div class="filterbody" id="filterBody">
+        <div class="crow">
+          <div class="chips" id="typeChips"></div>
+          <div class="spacer"></div>
+          <input class="search" id="search" type="search" placeholder="Search sessions…" aria-label="Search sessions">
         </div>
-        <div class="spacer"></div>
-        <div class="fld">
-          <label>Days</label>
-          <div class="dow-toggle" id="dowToggle" role="group" aria-label="Days of week"></div>
-        </div>
-      </div>
-      <div class="crow crow2">
-        <div class="fld time-fld">
-          <label>Start time</label>
-          <div class="range" id="range">
-            <div class="range-track"></div>
-            <div class="range-fill" id="rfill"></div>
-            <input type="range" id="tmin" aria-label="Earliest start time">
-            <input type="range" id="tmax" aria-label="Latest start time">
+        <div class="crow crow2">
+          <div class="fld">
+            <label>Level</label>
+            <div class="lvl-toggle" id="lvlChips" role="group" aria-label="Skill level"></div>
           </div>
-          <span class="time-label num" id="timeLabel"></span>
+          <div class="spacer"></div>
+          <div class="fld">
+            <label>Days</label>
+            <div class="dow-toggle" id="dowToggle" role="group" aria-label="Days of week"></div>
+          </div>
         </div>
-        <div class="spacer"></div>
-        <button class="toggle" id="mineOnly" type="button" aria-pressed="false"><span class="tk"></span>✓ My sessions</button>
-        <button class="toggle" id="friendsOnly" type="button" aria-pressed="false"><span class="tk"></span>★ Friends</button>
-        <button class="toggle" id="openOnly" type="button" aria-pressed="false"><span class="tk"></span>Open spots only</button>
-        <button class="reset" id="manageFriends" type="button">You &amp; friends</button>
-        <button class="reset" id="reset" type="button">Reset filters</button>
+        <div class="crow crow2">
+          <div class="fld time-fld">
+            <label>Start time</label>
+            <div class="range" id="range">
+              <div class="range-track"></div>
+              <div class="range-fill" id="rfill"></div>
+              <input type="range" id="tmin" aria-label="Earliest start time">
+              <input type="range" id="tmax" aria-label="Latest start time">
+            </div>
+            <span class="time-label num" id="timeLabel"></span>
+          </div>
+          <div class="spacer"></div>
+          <button class="toggle" id="mineOnly" type="button" aria-pressed="false"><span class="tk"></span>✓ My sessions</button>
+          <button class="toggle" id="friendsOnly" type="button" aria-pressed="false"><span class="tk"></span>★ Friends</button>
+          <button class="toggle" id="openOnly" type="button" aria-pressed="false"><span class="tk"></span>Open spots only</button>
+          <button class="reset" id="manageFriends" type="button">You &amp; friends</button>
+          <button class="reset" id="reset" type="button">Reset filters</button>
+        </div>
       </div>
     </div>
   </div>
@@ -425,7 +443,7 @@ function availText(e){
 
 // ---- module state, filled by boot() ----
 let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null, PEOPLE=[], curList=[];
-let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn;
+let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn,controlsEl,filtToggle,filtCount;
 
 // ---- friends (per-device, keyed on stable PodPlay profile id) ----
 const FRIENDS_KEY="apex-podplay-friends";
@@ -617,12 +635,27 @@ function cacheEls(){
   searchEl=document.getElementById("search"); openOnlyBtn=document.getElementById("openOnly");
   friendsOnlyBtn=document.getElementById("friendsOnly"); manageFriendsBtn=document.getElementById("manageFriends");
   mineOnlyBtn=document.getElementById("mineOnly");
+  controlsEl=document.querySelector(".controls"); filtToggle=document.getElementById("filtToggle"); filtCount=document.getElementById("filtCount");
 }
 function syncFriendsUI(){
   manageFriendsBtn.textContent=(me?me.name.split(" ")[0]||"You":"You")+" · Friends ("+friends.size+")";
   friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false");
   mineOnlyBtn.setAttribute("aria-pressed", state.mineOnly?"true":"false");
 }
+// count filter dimensions that differ from default → shown on the mobile "Filters" button
+function activeFilterCount(){
+  let n=0;
+  if(state.types.size!==Object.keys(CATS).length) n++;
+  if(!state.levels.has("all")) n++;
+  if(state.days.size!==7) n++;
+  if(state.tMin!==T_FLOOR || state.tMax!==T_CEIL) n++;
+  if(state.openOnly) n++;
+  if(state.friendsOnly) n++;
+  if(state.mineOnly) n++;
+  if(state.search) n++;
+  return n;
+}
+function syncFilterBar(){ if(filtCount){ const n=activeFilterCount(); filtCount.textContent = n?String(n):""; } }
 
 // ---- build controls ----
 function buildLegend(){
@@ -699,7 +732,7 @@ function monthLabel(){ return new Date(state.month.y, state.month.m-1, 1).toLoca
 
 // ---- render ----
 function render(){
-  syncFriendsUI();
+  syncFriendsUI(); syncFilterBar();
   const base = data.filter(passNonType);              // filter once per render
   updateCounts(base);
   curList = base.filter(e=>state.types.has(e.cat));    // shared by month grid, list, and day panel
@@ -997,6 +1030,7 @@ function wire(){
   friendsOnlyBtn.onclick=()=>{ state.friendsOnly=!state.friendsOnly; friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false"); saveState(); render(); };
   mineOnlyBtn.onclick=()=>{ if(!me){ openPeople(); return; } state.mineOnly=!state.mineOnly; mineOnlyBtn.setAttribute("aria-pressed", state.mineOnly?"true":"false"); saveState(); render(); };
   manageFriendsBtn.onclick=openPeople;
+  filtToggle.onclick=()=>{ const open=controlsEl.classList.toggle("open"); filtToggle.setAttribute("aria-expanded", open?"true":"false"); };
   syncFriendsUI();
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
   document.addEventListener("keydown",ev=>{
