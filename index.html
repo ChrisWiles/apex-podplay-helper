@@ -292,7 +292,6 @@
 const TZ = "America/Chicago";
 const BOOK = id => "https://apexpbclubs.podplay.app/community/events/" + id;
 const LS_KEY = "apex-podplay-filters";
-const LS_V = 3;
 
 const CATS = {
   openplay: {label:"Open Play", color:"var(--c-open)"},
@@ -401,12 +400,12 @@ function boot(payload){
 // ---- persistence ----
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify({
-    v:LS_V, types:[...state.types], levels:[...state.levels], days:[...state.days],
+    types:[...state.types], levels:[...state.levels], days:[...state.days],
     tMin:state.tMin, tMax:state.tMax, view:state.view })); }catch(e){}
 }
 function loadState(){
   let s; try{ s=JSON.parse(localStorage.getItem(LS_KEY)); }catch(e){ return; }
-  if(!s || s.v!==LS_V) return;
+  if(!s || typeof s!=="object") return;   // each field below is validated against live data — stale values self-heal to defaults
   if(Array.isArray(s.types)){ const t=s.types.filter(k=>CATS[k]); if(t.length) state.types=new Set(t); }
   if(Array.isArray(s.levels)){ const ok=new Set(LEVEL_KEYS); let l=s.levels.filter(k=>ok.has(k)); if(l.includes("all")) l=["all"]; if(l.length) state.levels=new Set(l); }
   if(Array.isArray(s.days)){ const d=s.days.filter(x=>x>=0&&x<=6); if(d.length) state.days=new Set(d); }
