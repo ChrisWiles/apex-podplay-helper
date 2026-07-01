@@ -337,6 +337,15 @@ function levelTokensOf(e){
 }
 // sort tokens 1, 1+, 2, 2+, 3, ... (plain before its "+" variant)
 function tokenSort(a,b){ const na=parseInt(a,10), nb=parseInt(b,10); if(na!==nb) return na-nb; return (a.includes("+")?1:0)-(b.includes("+")?1:0); }
+// PodPlay only opens registration a set number of days ahead. Hide sessions past that range:
+// use the precise signup-open time when known; for the few events that ship without one,
+// fall back to the observed ~14-day (member) advance so nothing leaks past the window.
+const FALLBACK_ADVANCE_MS = 14 * 864e5;
+function signupWindowOpen(e){
+  const now=Date.now();
+  if(e.signupOpen) return new Date(e.signupOpen).getTime() <= now;
+  return new Date(e.start).getTime() <= now + FALLBACK_ADVANCE_MS;
+}
 
 // ---- date helpers (Cedar Park / Central) ----
 const fmtCache={};
@@ -375,7 +384,7 @@ function boot(payload){
       dk:dayKey(e.start), mins:minutesOfDay(e.start), dow:DOWMAP[partsOf(e.start).weekday],
       start_ms:new Date(e.start).getTime(),
       spotsLeft: cap ? Math.max(0,cap-signed) : null, full: cap ? signed>=cap : false};
-  }).filter(e=>e.dk>=TODAY).sort((a,b)=>a.start_ms-b.start_ms);
+  }).filter(e=>e.dk>=TODAY && signupWindowOpen(e)).sort((a,b)=>a.start_ms-b.start_ms);
 
   // level filter options = whatever tokens actually exist, sorted 1,1+,2,2+,...
   LEVEL_KEYS = ["all", ...[...new Set(data.flatMap(e=>e.levelTokens))].sort(tokenSort)];
@@ -384,8 +393,8 @@ function boot(payload){
   const gen = payload && payload.generatedAt;
   const genTxt = gen ? new Date(gen).toLocaleString("en-US",{timeZone:TZ,month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}) : "";
   document.getElementById("snap").textContent = data.length
-    ? (data.length + " upcoming sessions" + (genTxt?" · updated "+genTxt:"") + " · times in Central (Cedar Park)")
-    : "No upcoming sessions found.";
+    ? (data.length + " sessions open for sign-up" + (genTxt?" · updated "+genTxt:"") + " · times in Central (Cedar Park)")
+    : "No sessions are open for sign-up right now — check back closer to the date.";
 
   // time bounds from data
   const mm = data.map(e=>e.mins);

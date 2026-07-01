@@ -71,6 +71,10 @@ async function fetchAllEvents(token) {
 function slim(e) {
   const pod = (e.pods?.items || [])[0] || {};
   const cap = (e.totalTeams || 0) * (e.teamSize || 1);
+  // earliest moment ANY tier can register — used to hide sessions beyond the sign-up window.
+  const ad = e.admissionDate || {};
+  const openDates = [ad.regular, ad.member, ad.membersDefault, ...((ad.memberships?.items) || []).map((m) => m.date)].filter(Boolean);
+  const signupOpen = openDates.length ? openDates.slice().sort()[0] : null; // ISO strings sort chronologically
   return {
     id: e.id,
     name: (e.name || "").trim(),
@@ -84,6 +88,7 @@ function slim(e) {
     member: e.admissionRate?.member ?? null,
     capacity: cap || null,
     signedUp: e.signups?._total ?? null,
+    signupOpen,
     podName: pod.displayName || null,
     podAddress: pod.address?.displayName || null,
   };
