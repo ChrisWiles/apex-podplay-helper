@@ -173,6 +173,7 @@
     border-bottom:1px solid var(--hair-2);border-left:4px solid;cursor:pointer}
   .row:last-child{border-bottom:0}
   .row:hover{background:#fafbfe}
+  .row:focus-visible,.cell[role="button"]:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
   .row .rtime{font-weight:700;font-variant-numeric:tabular-nums;font-size:13.5px}
   .row .rtime span{display:block;font-weight:600;color:var(--muted);font-size:12px}
   .row .rname{font-weight:600}
@@ -705,6 +706,11 @@ function render(){
   if(state.view==="month") renderMonth(); else renderList();
 }
 
+// make a non-button element operable as a button (keyboard + a11y role)
+function keyActivate(el){
+  el.setAttribute("role","button"); el.tabIndex=0;
+  el.addEventListener("keydown",ev=>{ if(ev.key==="Enter"||ev.key===" "){ ev.preventDefault(); el.click(); } });
+}
 function evChip(e){
   const b=document.createElement("button");
   b.className="ev cat-"+e.cat+(e.full?(e.spotsLeft===0?" wl":" full"):"");
@@ -747,7 +753,12 @@ function renderMonth(){
       const cats=new Set(evs.map(e=>e.cat));
       ["openplay","clinic","social","special"].forEach(c=>{ if(cats.has(c)){ const s=document.createElement("span"); s.className="dot-c "+c; dots.appendChild(s); } });
       cell.appendChild(dots);
-      if(evs.length) cell.onclick=()=>selectDay(key);
+      if(evs.length){
+        cell.onclick=()=>selectDay(key);
+        cell.setAttribute("aria-pressed", selDays.has(key)?"true":"false");
+        cell.setAttribute("aria-label", d.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})+", "+evs.length+" session"+(evs.length===1?"":"s"));
+        keyActivate(cell);
+      }
     } else {
       evs.slice(0,4).forEach(e=>cell.appendChild(evChip(e)));
       if(evs.length>4){
@@ -769,7 +780,7 @@ function renderMonth(){
 }
 function selectDay(key){
   if(selDays.has(key)) selDays.delete(key); else selDays.add(key);   // multi-select: toggle
-  [...weeks.children].forEach(c=>c.classList.toggle("sel", selDays.has(c.dataset.k)));
+  [...weeks.children].forEach(c=>{ const on=selDays.has(c.dataset.k); c.classList.toggle("sel", on); if(c.hasAttribute("role")) c.setAttribute("aria-pressed", on?"true":"false"); });
   renderDayPanel();
 }
 function renderDayPanel(){
@@ -815,6 +826,11 @@ function rowEl(e){
       '<span class="badge b-'+e.cat+'">'+CATS[e.cat].label+'</span>'+
       '<span>DUPR '+ratingText(e)+'</span>'+mbadge+fbadge+'</div></div>'+
     '<div class="rright">'+price+spots+'</div>';
+  let lbl=e.name+", "+timeLabelFull(e.start)+", "+CATS[e.cat].label+", "+availText(e);
+  if(ms) lbl+=ms.t==="in"?", you’re registered":", you’re on the waitlist";
+  if(fc) lbl+=", "+fc+" friend"+(fc===1?"":"s")+" going";
+  r.setAttribute("aria-label", lbl);
+  keyActivate(r);
   return r;
 }
 function renderList(){
