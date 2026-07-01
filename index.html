@@ -177,6 +177,9 @@
 
   /* mobile: tap-a-day calendar */
   .daypanel{display:none;margin-top:14px}
+  .daypanel .daygrp{margin-bottom:14px}
+  .daypanel .daygrp:last-child{margin-bottom:0}
+  .panelcap{font-size:12px;color:var(--muted);font-weight:600;padding:0 2px 10px}
   .daydots{display:none}
   .dot-c{width:6px;height:6px;border-radius:50%}
   .dot-c.openplay{background:var(--c-open)} .dot-c.clinic{background:var(--c-clinic)}
@@ -349,7 +352,7 @@ function minLabel(m){ let h=Math.floor(m/60), mm=m%60; const ap=h>=12?"PM":"AM";
 function ratingText(e){ if(e.minRating==null && e.maxRating==null) return "Open"; return (e.minRating!=null?e.minRating:"")+"–"+(e.maxRating!=null?e.maxRating:""); }
 
 // ---- module state, filled by boot() ----
-let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDay=null;
+let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null;
 let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel;
 
 // ---- load ----
@@ -551,9 +554,12 @@ function renderMonth(){
   list.forEach(e=>{const o=partsOf(e.start); if(+o.year===y && +o.month===m){(byDay[e.dk]=byDay[e.dk]||[]).push(e); monthTotal++;}});
 
   const mobile=MQ.matches;
-  if(mobile){
-    const inMonth = selDay && +selDay.slice(0,4)===y && +selDay.slice(5,7)===m && byDay[selDay];
-    if(!inMonth) selDay = byDay[TODAY] ? TODAY : (Object.keys(byDay).sort()[0] || null);
+  const ym = y+"-"+String(m).padStart(2,"0");
+  if(mobile && ym!==defaultedMonth){        // entering a month: seed one day so the panel isn't empty
+    defaultedMonth = ym;
+    selDays = new Set();
+    const def = byDay[TODAY] ? TODAY : (Object.keys(byDay).sort()[0] || null);
+    if(def) selDays.add(def);
   }
 
   const first=new Date(y,m-1,1), start=new Date(y,m-1,1-first.getDay());
@@ -563,7 +569,7 @@ function renderMonth(){
     const yy=d.getFullYear(), mm=String(d.getMonth()+1).padStart(2,"0"), dd=String(d.getDate()).padStart(2,"0");
     const key=yy+"-"+mm+"-"+dd, out=(d.getMonth()!==m-1), evs=byDay[key]||[];
     const cell=document.createElement("div");
-    cell.className="cell"+(out?" out":"")+(key===TODAY?" today":"")+(mobile&&key===selDay?" sel":"");
+    cell.className="cell"+(out?" out":"")+(key===TODAY?" today":"")+(mobile&&selDays.has(key)?" sel":"");
     cell.dataset.k=key;
     const dn=document.createElement("div"); dn.className="dnum";
     dn.innerHTML = key===TODAY ? '<span class="tpill">'+d.getDate()+'</span>' : String(d.getDate());
@@ -590,29 +596,39 @@ function renderMonth(){
   document.getElementById("prev").disabled = idx<=0;
   document.getElementById("next").disabled = idx>=months.length-1;
   grid.hidden=false; listEl.style.display="none"; emptyEl.hidden=true; monthbar.style.display="flex";
-  if(mobile){ renderDayPanel(selDay); dayPanel.classList.add("on"); }
+  if(mobile){ renderDayPanel(); dayPanel.classList.add("on"); }
   else { dayPanel.classList.remove("on"); dayPanel.innerHTML=""; }
 }
 function selectDay(key){
-  selDay=key;
-  [...weeks.children].forEach(c=>c.classList.toggle("sel", c.dataset.k===key));
-  renderDayPanel(key);
-  dayPanel.scrollIntoView({behavior:"smooth",block:"nearest"});
+  if(selDays.has(key)) selDays.delete(key); else selDays.add(key);   // multi-select: toggle
+  [...weeks.children].forEach(c=>c.classList.toggle("sel", selDays.has(c.dataset.k)));
+  renderDayPanel();
 }
-function renderDayPanel(key){
+function renderDayPanel(){
   dayPanel.innerHTML="";
-  if(!key) return;
-  const evs=filtered().filter(e=>e.dk===key).sort((a,b)=>a.start_ms-b.start_ms);
-  const [Y,M,D]=key.split("-").map(Number); const dObj=new Date(Y,M-1,D);
-  const grp=document.createElement("div"); grp.className="daygrp";
-  const hd=document.createElement("div"); hd.className="dayhd";
-  hd.innerHTML='<span class="dd">'+dObj.toLocaleDateString("en-US",{month:"long",day:"numeric"})+'</span>'+
-               '<span class="dw">'+dObj.toLocaleDateString("en-US",{weekday:"long"})+'</span>'+
-               '<span class="dc num">'+evs.length+' session'+(evs.length===1?"":"s")+'</span>';
-  grp.appendChild(hd);
-  if(evs.length){ const rows=document.createElement("div"); rows.className="rows"; evs.forEach(e=>rows.appendChild(rowEl(e))); grp.appendChild(rows); }
-  else { const em=document.createElement("div"); em.className="paneln"; em.textContent="No sessions match your filters on this day."; grp.appendChild(em); }
-  dayPanel.appendChild(grp);
+  const keys=[...selDays].sort();
+  if(!keys.length){
+    const g=document.createElement("div"); g.className="daygrp";
+    g.innerHTML='<div class="paneln">Tap one or more days above to see their sessions.</div>';
+    dayPanel.appendChild(g); return;
+  }
+  const cap=document.createElement("div"); cap.className="panelcap";
+  cap.textContent=keys.length+" day"+(keys.length===1?"":"s")+" selected · tap days to add or remove";
+  dayPanel.appendChild(cap);
+  const all=filtered();
+  keys.forEach(key=>{
+    const evs=all.filter(e=>e.dk===key).sort((a,b)=>a.start_ms-b.start_ms);
+    const [Y,M,D]=key.split("-").map(Number); const dObj=new Date(Y,M-1,D);
+    const grp=document.createElement("div"); grp.className="daygrp";
+    const hd=document.createElement("div"); hd.className="dayhd";
+    hd.innerHTML='<span class="dd">'+dObj.toLocaleDateString("en-US",{month:"long",day:"numeric"})+'</span>'+
+                 '<span class="dw">'+dObj.toLocaleDateString("en-US",{weekday:"long"})+'</span>'+
+                 '<span class="dc num">'+evs.length+' session'+(evs.length===1?"":"s")+'</span>';
+    grp.appendChild(hd);
+    if(evs.length){ const rows=document.createElement("div"); rows.className="rows"; evs.forEach(e=>rows.appendChild(rowEl(e))); grp.appendChild(rows); }
+    else { const em=document.createElement("div"); em.className="paneln"; em.textContent="No sessions match your filters on this day."; grp.appendChild(em); }
+    dayPanel.appendChild(grp);
+  });
 }
 function rowEl(e){
   const r=document.createElement("div"); r.className="row cat-"+e.cat; r.onclick=()=>openSheet(e);
@@ -698,7 +714,7 @@ function wire(){
   document.getElementById("reset").onclick=resetFilters;
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
   document.addEventListener("keydown",ev=>{ if(ev.key==="Escape"&&scrim.classList.contains("open"))closeSheet(); });
-  MQ.addEventListener("change",()=>{ selDay=null; render(); });   // re-render when crossing the mobile breakpoint
+  MQ.addEventListener("change",()=>{ selDays=new Set(); defaultedMonth=null; render(); });   // re-render when crossing the mobile breakpoint
 }
 function resetFilters(){
   try{ localStorage.removeItem(LS_KEY); }catch(e){}
