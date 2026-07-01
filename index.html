@@ -92,6 +92,7 @@
     border:1px solid var(--hair);border-radius:999px;padding:7px 13px;cursor:pointer;display:flex;align-items:center;gap:7px;line-height:1;
     transition:background .15s,border-color .15s,color .15s}
   .toggle .tk{width:8px;height:8px;border-radius:50%;background:var(--muted-2)}
+  .toggle .tsym{line-height:1;font-size:15px;margin-right:-2px}   /* own flex item so the glyph centers vertically */
   .toggle[aria-pressed="true"]{background:var(--c-social);color:#fff;border-color:transparent}
   .toggle[aria-pressed="true"] .tk{background:#fff}
   .search:focus-visible,.toggle:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
@@ -414,7 +415,7 @@
           <button class="toggle" id="mineOnly" type="button" aria-pressed="false"><span class="tk"></span>✓ My sessions</button>
           <button class="toggle" id="friendsOnly" type="button" aria-pressed="false"><span class="tk"></span>★ Friends</button>
           <button class="toggle" id="openOnly" type="button" aria-pressed="false"><span class="tk"></span>Open spots only</button>
-          <button class="toggle" id="womenOnly" type="button" aria-pressed="false"><span class="tk"></span>♀ Women</button>
+          <button class="toggle" id="womenOnly" type="button" aria-pressed="false"><span class="tk"></span><span class="tsym" aria-hidden="true">&#9792;&#xFE0E;</span>Women</button>
           <button class="reset" id="manageFriends" type="button">You &amp; friends</button>
           <button class="reset" id="reset" type="button">Reset filters</button>
         </div>
