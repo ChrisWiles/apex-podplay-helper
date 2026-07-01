@@ -68,13 +68,17 @@ async function fetchAllEvents(token) {
   return items;
 }
 
+// earliest moment ANY tier can register (ISO strings sort chronologically) — null if unknown
+function signupOpenOf(e) {
+  const ad = e.admissionDate || {};
+  const dates = [ad.regular, ad.member, ad.membersDefault, ...((ad.memberships?.items) || []).map((m) => m.date)].filter(Boolean);
+  return dates.length ? dates.slice().sort()[0] : null;
+}
+
 function slim(e) {
   const pod = (e.pods?.items || [])[0] || {};
   const cap = (e.totalTeams || 0) * (e.teamSize || 1);
-  // earliest moment ANY tier can register — used to hide sessions beyond the sign-up window.
-  const ad = e.admissionDate || {};
-  const openDates = [ad.regular, ad.member, ad.membersDefault, ...((ad.memberships?.items) || []).map((m) => m.date)].filter(Boolean);
-  const signupOpen = openDates.length ? openDates.slice().sort()[0] : null; // ISO strings sort chronologically
+  const signupOpen = signupOpenOf(e);
   return {
     id: e.id,
     name: (e.name || "").trim(),
@@ -165,7 +169,19 @@ async function main() {
     );
   }
 
-  const rosters = await fetchRosters(token, raw);
+  // The API returns ~5-6 weeks, but the site only shows what's open (or opening
+  // very soon) for sign-up. Drop the not-yet-open tail so the client downloads
+  // and processes ~half as many events. Buffer covers the loop cadence + skew.
+  const now = Date.now();
+  const OPEN_BUFFER = 2 * 86400000;      // keep events whose registration opens within 2 days
+  const DATELESS_HORIZON = 16 * 86400000; // events lacking an open date: keep ~2+ weeks out
+  const soon = raw.filter((e) => {
+    const so = signupOpenOf(e);
+    return so ? new Date(so).getTime() <= now + OPEN_BUFFER
+              : new Date(e.startTime).getTime() <= now + DATELESS_HORIZON;
+  });
+
+  const rosters = await fetchRosters(token, soon);
 
   // normalize attendees: each person stored once in `people`, events reference by index
   const people = [];
@@ -179,7 +195,7 @@ async function main() {
   };
 
   let waitlists = 0;
-  const events = raw
+  const events = soon
     .map((e) => {
       const s = slim(e);
       const roster = rosters.get(e.id);
@@ -193,7 +209,7 @@ async function main() {
 
   const payload = { generatedAt: new Date().toISOString(), count: events.length, people, events };
   await (await import("node:fs/promises")).writeFile(OUT, JSON.stringify(payload));
-  console.log(`Wrote ${events.length} events + ${people.length} people (${rosters.size} rosters, ${waitlists} waitlists) to events.json`);
+  console.log(`Wrote ${events.length}/${raw.length} events + ${people.length} people (${rosters.size} rosters, ${waitlists} waitlists) to events.json`);
 }
 
 main().catch((err) => {

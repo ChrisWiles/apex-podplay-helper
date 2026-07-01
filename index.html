@@ -521,9 +521,11 @@ function boot(payload){
   const resolve = idxs => (idxs||[]).map(i=>PEOPLE[i]).filter(Boolean).map(p=>({id:p[0], name:p[1]}));
   data = raw.map(e=>{
     const lv=levelTokensOf(e);
+    const o=partsOf(e.start);                                   // one Intl call → derive dk, dow, and minutes
+    let h=parseInt(o.hour,10)%12; if(o.dayPeriod==="PM") h+=12; // 12h → 24h (12AM→0, 12PM→12)
     const cap=e.capacity||0, signed=e.signedUp||0;
     const ev={...e, cat:classifyType(e), levelTokens:lv.tokens, isOpen:lv.isOpen,
-      dk:dayKey(e.start), mins:minutesOfDay(e.start), dow:DOWMAP[partsOf(e.start).weekday],
+      dk:o.year+"-"+o.month+"-"+o.day, mins:h*60+parseInt(o.minute,10), dow:DOWMAP[o.weekday],
       start_ms:new Date(e.start).getTime(),
       spotsLeft: cap ? Math.max(0,cap-signed) : null, full: cap ? signed>=cap : false};
     applyRoster(ev, resolve(e.att), resolve(e.wl));   // baked signups + waitlist → id sets + search names
@@ -559,7 +561,7 @@ function boot(payload){
   };
   loadState();
 
-  months = [...new Set(data.map(e=>{const o=partsOf(e.start);return o.year+"-"+o.month;}))].sort();
+  months = [...new Set(data.map(e=>e.dk.slice(0,7)))].sort();
   if(months.length) setMonth(months[0]);
 
   cacheEls();
@@ -1032,7 +1034,11 @@ function wire(){
   document.getElementById("next").onclick=()=>{const i=months.indexOf(state.month.y+"-"+String(state.month.m).padStart(2,"0"));if(i<months.length-1){setMonth(months[i+1]);render();}};
   document.getElementById("reset").onclick=resetFilters;
   searchEl.value=state.search;
-  searchEl.addEventListener("input",()=>{ state.search=searchEl.value.trim().toLowerCase(); render(); });   // transient, not persisted
+  let searchT;
+  searchEl.addEventListener("input",()=>{   // debounced; transient, not persisted
+    clearTimeout(searchT);
+    searchT=setTimeout(()=>{ state.search=searchEl.value.trim().toLowerCase(); render(); }, 140);
+  });
   openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false");
   openOnlyBtn.onclick=()=>{ state.openOnly=!state.openOnly; openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false"); saveState(); render(); };
   friendsOnlyBtn.onclick=()=>{ state.friendsOnly=!state.friendsOnly; friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false"); saveState(); render(); };
