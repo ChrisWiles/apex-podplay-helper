@@ -537,6 +537,14 @@ function boot(payload){
   if(!data.length){ monthbar.style.display="none"; grid.hidden=true; emptyEl.hidden=false;
     emptyEl.innerHTML="<b>No upcoming sessions</b>Check back later — the club publishes its booking window a few weeks out."; return; }
   render();
+
+  // first visit with no identity set → prompt for their name up front (once)
+  try{
+    if(!me && !localStorage.getItem("apex-podplay-onboarded")){
+      localStorage.setItem("apex-podplay-onboarded","1");
+      openPeople(true);
+    }
+  }catch(e){}
 }
 
 // ---- persistence ----
@@ -848,26 +856,29 @@ function wireStars(){
     };
   });
 }
-function openPeople(){
+function openPeople(onboarding){
   lastFocus=document.activeElement;
   const meBox = me
     ? '<div class="me-box"><div class="cur"><span>You: <span class="who">'+esc(me.name||"Member")+'</span></span>'
         +'<button class="mini" id="meChange">Change / clear</button></div></div>'
-    : '<div class="me-box"><div class="when" style="color:var(--muted)">Tell the app who you are to see what you’re registered for and your waitlist spots.</div>'
+    : '<div class="me-box">'+(onboarding?"":'<div class="when" style="color:var(--muted)">Tell the app who you are to see what you’re registered for and your waitlist spots.</div>')
         +'<input class="me-search" id="meSearch" type="search" placeholder="Search your name…" aria-label="Search your name">'
         +'<ul class="me-results" id="meResults"></ul></div>';
   const entries=[...friends].sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
   const fr = entries.length
     ? '<ul class="fr-list">'+entries.map(([id,name])=>'<li><span class="pn">'+esc(name||"Member")+'</span><button class="rm" data-id="'+esc(id)+'">Remove</button></li>').join("")+'</ul>'
     : '<div class="fr-empty">No friends yet. Open a session’s <b>Who’s going</b> list and tap a star to follow someone.</div>';
+  const head = onboarding
+    ? '<div class="cat" style="color:var(--mine)">Welcome</div><h3 id="sh-title">Who are you?</h3>'
+      +'<div class="when">Search your name so the app can show what you’re registered for and your waitlist spots — or skip and just browse.</div>'
+    : '<div class="cat" style="color:var(--mine)">You &amp; friends</div><h3 id="sh-title">You &amp; friends</h3>'
+      +'<div class="when">Marks what you’re registered for, and flags friends’ sessions with a ★. Saved on this device only.</div>';
   sheet.innerHTML=
-    '<div class="top"><div class="cat" style="color:var(--mine)">You &amp; friends</div>'+
-      '<h3 id="sh-title">You &amp; friends</h3>'+
-      '<div class="when">Marks what you’re registered for, and flags friends’ sessions with a ★. Saved on this device only.</div></div>'+
+    '<div class="top">'+head+'</div>'+
     meBox+
     '<div class="roster"><div class="rhd">Friends ('+friends.size+')</div></div>'+
     fr+
-    '<div class="foot"><button class="book" id="fdone">Done</button><button class="close" id="x" aria-label="Close">×</button></div>';
+    '<div class="foot"><button class="book" id="fdone">'+(onboarding?"Skip for now":"Done")+'</button><button class="close" id="x" aria-label="Close">×</button></div>';
   scrim.classList.add("open");
   document.getElementById("x").onclick=closeSheet;
   document.getElementById("fdone").onclick=closeSheet;
