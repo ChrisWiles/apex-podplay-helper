@@ -416,9 +416,14 @@ function timeLabelFull(iso){ const o=partsOf(iso); return o.hour+":"+o.minute+" 
 function todayKey(){ const o={}; fmt({year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).forEach(p=>o[p.type]=p.value); return o.year+"-"+o.month+"-"+o.day; }
 function minLabel(m){ let h=Math.floor(m/60), mm=m%60; const ap=h>=12?"PM":"AM"; let hh=h%12; if(hh===0)hh=12; return hh+":"+String(mm).padStart(2,"0")+" "+ap; }
 function ratingText(e){ if(e.minRating==null && e.maxRating==null) return "Open"; return (e.minRating!=null?e.minRating:"")+"–"+(e.maxRating!=null?e.maxRating:""); }
+function availText(e){
+  if(e.spotsLeft===null) return "Open registration";
+  if(e.spotsLeft===0) return e.full?"Full — join the waitlist":"Full";
+  return e.spotsLeft+" of "+e.capacity+" spots left";
+}
 
 // ---- module state, filled by boot() ----
-let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null, PEOPLE=[];
+let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null, PEOPLE=[], curList=[];
 let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn;
 
 // ---- friends (per-device, keyed on stable PodPlay profile id) ----
@@ -461,7 +466,11 @@ async function refreshRoster(e){
     const att=[]; for(const r of inv.items||[]){ if(r.type!=="EVENT_SIGNUP"||LIVE_SKIP.has(r.status))continue; const p=personOf(r); if(p)att.push(p); }
     let wl=[];
     if(e.full){ try{ const w=await (await fetch(`${API_BASE}/events/${e.id}/waitlist?expand=items._links.inviteeProfile&ipp=100`,{headers:hz})).json(); wl=(w.items||[]).map(personOf).filter(Boolean); }catch(x){} }
-    applyRoster(e, att, wl); e._live=true; return true;
+    applyRoster(e, att, wl);
+    // roster is now the source of truth → refresh the counts too, so spots/badges match
+    e.signedUp = att.length;
+    if(e.capacity){ e.spotsLeft = Math.max(0, e.capacity-att.length); e.full = att.length>=e.capacity; }
+    e._live=true; return true;
   }catch(x){ return false; }
 }
 function applyRoster(e, att, wl){
@@ -584,11 +593,10 @@ function passNonType(e){
     && (!state.search || e.name.toLowerCase().includes(state.search)
         || (e._attNames && e._attNames.some(n=>n.includes(state.search))));   // search matches session OR a player's name
 }
-function filtered(){ return data.filter(e => state.types.has(e.cat) && passNonType(e)); }
-
-function updateCounts(){
+// counts reflect the non-type filters (so each type chip shows how many it would add)
+function updateCounts(base){
   const c={}; Object.keys(CATS).forEach(k=>c[k]=0);
-  data.filter(passNonType).forEach(e=>c[e.cat]++);
+  base.forEach(e=>c[e.cat]++);
   typeChips.querySelectorAll(".chip").forEach(b=>{
     const k=[...b.classList].find(x=>x.startsWith("c-")).slice(2);
     const cn=b.querySelector(".cn"); if(cn) cn.textContent=c[k];
@@ -689,7 +697,13 @@ function setMonth(ym){ const [y,m]=ym.split("-").map(Number); state.month={y,m};
 function monthLabel(){ return new Date(state.month.y, state.month.m-1, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"}); }
 
 // ---- render ----
-function render(){ syncFriendsUI(); updateCounts(); if(state.view==="month") renderMonth(); else renderList(); }
+function render(){
+  syncFriendsUI();
+  const base = data.filter(passNonType);              // filter once per render
+  updateCounts(base);
+  curList = base.filter(e=>state.types.has(e.cat));    // shared by month grid, list, and day panel
+  if(state.view==="month") renderMonth(); else renderList();
+}
 
 function evChip(e){
   const b=document.createElement("button");
@@ -702,13 +716,13 @@ function evChip(e){
   return b;
 }
 function renderMonth(){
-  const list=filtered(); weeks.innerHTML="";
+  weeks.innerHTML="";
   const {y,m}=state.month;
+  const ym = y+"-"+String(m).padStart(2,"0");
   const byDay={}; let monthTotal=0;
-  list.forEach(e=>{const o=partsOf(e.start); if(+o.year===y && +o.month===m){(byDay[e.dk]=byDay[e.dk]||[]).push(e); monthTotal++;}});
+  curList.forEach(e=>{ if(e.dk.slice(0,7)===ym){ (byDay[e.dk]=byDay[e.dk]||[]).push(e); monthTotal++; } });   // e.dk is the Central-time date key
 
   const mobile=MQ.matches;
-  const ym = y+"-"+String(m).padStart(2,"0");
   if(mobile && ym!==defaultedMonth){        // entering a month: seed one day so the panel isn't empty
     defaultedMonth = ym;
     selDays = new Set();
@@ -746,7 +760,7 @@ function renderMonth(){
   }
   mlabel.textContent=monthLabel();
   mcount.textContent=monthTotal+" session"+(monthTotal===1?"":"s");
-  const idx=months.indexOf(y+"-"+String(m).padStart(2,"0"));
+  const idx=months.indexOf(ym);
   document.getElementById("prev").disabled = idx<=0;
   document.getElementById("next").disabled = idx>=months.length-1;
   grid.hidden=false; listEl.style.display="none"; emptyEl.hidden=true; monthbar.style.display="flex";
@@ -769,7 +783,7 @@ function renderDayPanel(){
   const cap=document.createElement("div"); cap.className="panelcap";
   cap.textContent=keys.length+" day"+(keys.length===1?"":"s")+" selected · tap days to add or remove";
   dayPanel.appendChild(cap);
-  const all=filtered();
+  const all=curList;
   keys.forEach(key=>{
     const evs=all.filter(e=>e.dk===key).sort((a,b)=>a.start_ms-b.start_ms);
     const [Y,M,D]=key.split("-").map(Number); const dObj=new Date(Y,M-1,D);
@@ -804,7 +818,7 @@ function rowEl(e){
   return r;
 }
 function renderList(){
-  const list=filtered(); listEl.innerHTML=""; grid.hidden=true; monthbar.style.display="none";
+  const list=curList; listEl.innerHTML=""; grid.hidden=true; monthbar.style.display="none";
   dayPanel.classList.remove("on"); dayPanel.innerHTML="";
   if(!list.length){ emptyEl.hidden=false; listEl.style.display="none";
     emptyEl.innerHTML="<b>No sessions match these filters</b>Turn a filter back on, widen the time range, or reset."; return; }
@@ -857,7 +871,7 @@ function wireStars(){
   });
 }
 function openPeople(onboarding){
-  lastFocus=document.activeElement;
+  if(!scrim.classList.contains("open")) lastFocus=document.activeElement;
   const meBox = me
     ? '<div class="me-box"><div class="cur"><span>You: <span class="who">'+esc(me.name||"Member")+'</span></span>'
         +'<button class="mini" id="meChange">Change / clear</button></div></div>'
@@ -904,11 +918,10 @@ function openPeople(onboarding){
   document.getElementById("x").focus();
 }
 function openSheet(e){
-  lastFocus=document.activeElement; sheetEvent=e;
+  if(!scrim.classList.contains("open")) lastFocus=document.activeElement;
+  sheetEvent=e;
   const d=new Date(e.start);
   const dateStr=d.toLocaleDateString("en-US",{timeZone:TZ,weekday:"long",month:"long",day:"numeric"});
-  const spots = e.spotsLeft===null ? "Open registration" :
-    (e.spotsLeft===0 ? (e.full?"Full — join the waitlist":"Full") : e.spotsLeft+" of "+e.capacity+" spots left");
   const price = (e.regular&&e.regular>0)
     ? '$'+e.regular.toFixed(2).replace(/\.00$/,"")+' drop-in'+(e.member?' <span class="hint">· $'+e.member.toFixed(2).replace(/\.00$/,"")+' member</span>':'')
     : 'Free';
@@ -922,7 +935,7 @@ function openSheet(e){
       drow("Skill","DUPR "+ratingText(e)+' <span class="hint">· Doubles</span>')+
       drow("Location","Apex Pickleball Clubs"+(e.podAddress?'<br><span class="hint">'+e.podAddress+'</span>':""))+
       drow("Price", price)+
-      drow("Availability", spots)+
+      drow("Availability", '<span id="availVal">'+availText(e)+'</span>')+
     '</div>'+
     rosterHtml(e)+
     '<div class="foot">'+
@@ -940,6 +953,7 @@ function openSheet(e){
       if(ok && sheetEvent===e && scrim.classList.contains("open")){
         const box=sheet.querySelector("#rosterBox");
         if(box){ box.outerHTML=rosterHtml(e); wireStars(); }
+        const av=sheet.querySelector("#availVal"); if(av) av.textContent=availText(e);   // live spots/waitlist
         render();   // refresh badges/counts behind the modal
       }
     });
@@ -969,7 +983,17 @@ function wire(){
   manageFriendsBtn.onclick=openPeople;
   syncFriendsUI();
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
-  document.addEventListener("keydown",ev=>{ if(ev.key==="Escape"&&scrim.classList.contains("open"))closeSheet(); });
+  document.addEventListener("keydown",ev=>{
+    if(!scrim.classList.contains("open")) return;
+    if(ev.key==="Escape"){ closeSheet(); return; }
+    if(ev.key==="Tab"){   // trap focus inside the dialog
+      const f=[...sheet.querySelectorAll('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(el=>!el.disabled && el.offsetParent!==null);
+      if(!f.length) return;
+      const first=f[0], last=f[f.length-1];
+      if(ev.shiftKey && document.activeElement===first){ ev.preventDefault(); last.focus(); }
+      else if(!ev.shiftKey && document.activeElement===last){ ev.preventDefault(); first.focus(); }
+    }
+  });
   MQ.addEventListener("change",()=>{ selDays=new Set(); defaultedMonth=null; render(); });   // re-render when crossing the mobile breakpoint
 }
 function resetFilters(){

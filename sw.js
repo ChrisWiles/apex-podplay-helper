@@ -1,6 +1,6 @@
 /* Apex PodPlay Helper — offline shell + fresh data.
  * Bump CACHE to force clients onto a new shell after a deploy. */
-const CACHE = "apex-podplay-v1";
+const CACHE = "apex-podplay-v2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -18,20 +18,22 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET" || new URL(req.url).origin !== location.origin) return;
+  const path = new URL(req.url).pathname;
 
-  // events.json → network-first so data is fresh online, cached copy offline.
-  if (new URL(req.url).pathname.endsWith("/events.json")) {
+  // HTML + data → network-first so code deploys and fresh data show on the next
+  // load (not the one after); fall back to cache offline.
+  if (req.mode === "navigate" || path.endsWith("/events.json") || path.endsWith("/index.html") || path.endsWith("/")) {
     e.respondWith(
       fetch(req).then((r) => {
         const copy = r.clone();
         caches.open(CACHE).then((c) => c.put(req, copy));
         return r;
-      }).catch(() => caches.match(req)),
+      }).catch(() => caches.match(req).then((m) => m || caches.match("./index.html"))),
     );
     return;
   }
 
-  // everything else (shell) → stale-while-revalidate: instant load, refresh in background.
+  // static assets (icon, manifest) → stale-while-revalidate: instant, refresh in background.
   e.respondWith(
     caches.match(req).then((cached) => {
       const net = fetch(req).then((r) => {
