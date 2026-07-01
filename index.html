@@ -292,7 +292,7 @@
 const TZ = "America/Chicago";
 const BOOK = id => "https://apexpbclubs.podplay.app/community/events/" + id;
 const LS_KEY = "apex-podplay-filters";
-const LS_V = 1;
+const LS_V = 2;
 
 const CATS = {
   openplay: {label:"Open Play", color:"var(--c-open)"},
@@ -300,8 +300,6 @@ const CATS = {
   social:   {label:"Social",    color:"var(--c-social)"},
   special:  {label:"Special",   color:"var(--c-special)"},
 };
-const LEVEL_KEYS = ["all",1,2,3,4,5];
-
 function classifyType(e){
   const n=(e.name||"").toLowerCase();
   const tags=e.tags||[];
@@ -310,11 +308,17 @@ function classifyType(e){
   if(e.customType==="Private Event") return "special";
   return "openplay";
 }
-function levelsOf(e){
-  const set=new Set();
-  (e.tags||[]).forEach(t=>{ const m=/^Level\s+(\d)/.exec(t); if(m) set.add(+m[1]); });
-  return { levels:[...set], isOpen:(e.tags||[]).includes("All Levels") || set.size===0 };
+// Level "tokens" carry the +/combined nuance the numeric tag can't: "3", "3+", etc.
+// Parse them from the name (where the "+" lives), falling back to numeric tags.
+function levelTokensOf(e){
+  const tokens=new Set();
+  const m=/level[s]?\s*([0-9+/&.\s-]+)/i.exec(e.name||"");
+  if(m){ const re=/(\d)(?:\.\d)?(\+?)/g; let x; while((x=re.exec(m[1]))) tokens.add(x[1]+(x[2]||"")); }
+  if(!tokens.size){ (e.tags||[]).forEach(t=>{ const mm=/^Level\s+(\d)/.exec(t); if(mm) tokens.add(mm[1]); }); }
+  return { tokens:[...tokens], isOpen:(e.tags||[]).includes("All Levels") || tokens.size===0 };
 }
+// sort tokens 1, 1+, 2, 2+, 3, ... (plain before its "+" variant)
+function tokenSort(a,b){ const na=parseInt(a,10), nb=parseInt(b,10); if(na!==nb) return na-nb; return (a.includes("+")?1:0)-(b.includes("+")?1:0); }
 
 // ---- date helpers (Cedar Park / Central) ----
 const fmtCache={};
@@ -330,7 +334,7 @@ function minLabel(m){ let h=Math.floor(m/60), mm=m%60; const ap=h>=12?"PM":"AM";
 function ratingText(e){ if(e.minRating==null && e.maxRating==null) return "Open"; return (e.minRating!=null?e.minRating:"")+"–"+(e.maxRating!=null?e.maxRating:""); }
 
 // ---- module state, filled by boot() ----
-let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state;
+let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"];
 let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips;
 
 // ---- load ----
@@ -347,13 +351,16 @@ function boot(payload){
   const raw = (payload && payload.events) || [];
   TODAY = todayKey();
   data = raw.map(e=>{
-    const lv=levelsOf(e);
+    const lv=levelTokensOf(e);
     const cap=e.capacity||0, signed=e.signedUp||0;
-    return {...e, cat:classifyType(e), levels:lv.levels, isOpen:lv.isOpen,
+    return {...e, cat:classifyType(e), levelTokens:lv.tokens, isOpen:lv.isOpen,
       dk:dayKey(e.start), mins:minutesOfDay(e.start), dow:DOWMAP[partsOf(e.start).weekday],
       start_ms:new Date(e.start).getTime(),
       spotsLeft: cap ? Math.max(0,cap-signed) : null, full: cap ? signed>=cap : false};
   }).filter(e=>e.dk>=TODAY).sort((a,b)=>a.start_ms-b.start_ms);
+
+  // level filter options = whatever tokens actually exist, sorted 1,1+,2,2+,...
+  LEVEL_KEYS = ["all", ...[...new Set(data.flatMap(e=>e.levelTokens))].sort(tokenSort)];
 
   // snapshot line
   const gen = payload && payload.generatedAt;
@@ -411,7 +418,7 @@ function loadState(){
 
 // ---- filtering ----
 function matchesLevel(e){
-  if(e.levels.some(l=>state.levels.has(l))) return true;
+  if(e.levelTokens.some(t=>state.levels.has(t))) return true;
   return e.isOpen && state.levels.has("all");
 }
 function passDayTimeLevel(e){ return matchesLevel(e) && state.days.has(e.dow) && e.mins>=state.tMin && e.mins<=state.tMax; }
@@ -456,8 +463,9 @@ function buildTypeChips(){
   });
 }
 function buildLevelChips(){
+  lvlChips.innerHTML="";
   LEVEL_KEYS.forEach(k=>{
-    const b=document.createElement("button"); b.type="button"; b.className="lvl-btn"; b.dataset.k=String(k);
+    const b=document.createElement("button"); b.type="button"; b.className="lvl-btn"; b.dataset.k=k;
     b.textContent = k==="all" ? "All" : "L"+k;
     b.title = k==="all" ? "All-levels / open sessions" : "Level "+k;
     b.setAttribute("aria-pressed", state.levels.has(k)?"true":"false");
@@ -492,7 +500,7 @@ function updateRangeUI(){
 // toggle helper: never allow an empty set (empty ⇒ select all)
 function toggle(set,k,all){ if(set.has(k)) set.delete(k); else set.add(k); if(!set.size) all.forEach(x=>set.add(x)); }
 function syncPressed(container,prefix,set){ container.querySelectorAll("button").forEach(b=>{ const k=[...b.classList].find(x=>x.startsWith(prefix)).slice(prefix.length); b.setAttribute("aria-pressed", set.has(k)?"true":"false"); }); }
-function syncLevels(){ [...lvlChips.children].forEach(b=>{ const raw=b.dataset.k; const k=raw==="all"?"all":+raw; b.setAttribute("aria-pressed", state.levels.has(k)?"true":"false"); }); }
+function syncLevels(){ [...lvlChips.children].forEach(b=>b.setAttribute("aria-pressed", state.levels.has(b.dataset.k)?"true":"false")); }
 function syncDow(){ [...dowToggle.children].forEach((b,i)=>b.setAttribute("aria-pressed", state.days.has(i)?"true":"false")); }
 
 // ---- month nav ----
