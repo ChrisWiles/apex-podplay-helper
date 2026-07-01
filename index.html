@@ -16,7 +16,7 @@
     --brand:#2457d6; --lime:#c7e63f;
     --c-open:#2563c9; --c-clinic:#c6741b; --c-social:#0e8c7f; --c-special:#6d3be0;
     --c-open-b:#eaf1fd; --c-clinic-b:#fbf0e2; --c-social-b:#e6f5f2; --c-special-b:#f0ebfc;
-    --full:#b03636; --star:#e0a400; --shadow:0 1px 2px rgba(16,23,37,.06),0 8px 24px rgba(16,23,37,.06);
+    --full:#b03636; --star:#e0a400; --mine:#178a3d; --shadow:0 1px 2px rgba(16,23,37,.06),0 8px 24px rgba(16,23,37,.06);
     --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
   *{box-sizing:border-box}
@@ -230,6 +230,21 @@
   /* friends: badges, roster, manager */
   .fbadge{color:var(--star);font-weight:700;font-variant-numeric:tabular-nums}
   .ev .fstar{color:var(--star);font-weight:700}
+  .mebadge{color:var(--mine);font-weight:700}
+  .mebadge.wl{color:var(--c-clinic)}
+  .ev .mestar{color:var(--mine);font-weight:800}
+  .ev .mestar.wl{color:var(--c-clinic)}
+  .roster li.isme{background:#e7f6ec}
+  .roster .metag{margin-left:auto;font-size:11px;font-weight:700;color:var(--mine);text-transform:uppercase;letter-spacing:.06em}
+  .roster .rhd.wl{color:var(--c-clinic)}
+  .me-box{padding:10px 22px 4px}
+  .me-box .cur{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600}
+  .me-box .cur .who{color:var(--mine)}
+  .me-box .mini{font-size:12px;color:var(--muted);border:1px solid var(--hair);background:var(--card);border-radius:7px;padding:4px 9px;cursor:pointer;font-weight:600}
+  .me-search{width:100%;font-family:inherit;font-size:14px;border:1px solid var(--hair);border-radius:8px;padding:9px 11px;margin:6px 0}
+  .me-results{list-style:none;margin:0;padding:0;max-height:200px;overflow:auto;display:flex;flex-direction:column;gap:1px}
+  .me-results li{display:flex;align-items:center;gap:10px;padding:6px;border-radius:8px}
+  .me-results .pick{margin-left:auto;border:1px solid var(--brand);background:var(--card);color:var(--brand);border-radius:7px;padding:4px 10px;cursor:pointer;font-weight:600;font-size:12px}
   .roster{padding:2px 22px 6px}
   .roster .rhd{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:8px 0}
   .roster ul{list-style:none;margin:0;padding:0;max-height:210px;overflow:auto;display:flex;flex-direction:column;gap:1px}
@@ -317,9 +332,10 @@
           <span class="time-label num" id="timeLabel"></span>
         </div>
         <div class="spacer"></div>
+        <button class="toggle" id="mineOnly" type="button" aria-pressed="false"><span class="tk"></span>✓ My sessions</button>
         <button class="toggle" id="friendsOnly" type="button" aria-pressed="false"><span class="tk"></span>★ Friends</button>
         <button class="toggle" id="openOnly" type="button" aria-pressed="false"><span class="tk"></span>Open spots only</button>
-        <button class="reset" id="manageFriends" type="button">Friends (0)</button>
+        <button class="reset" id="manageFriends" type="button">You &amp; friends</button>
         <button class="reset" id="reset" type="button">Reset filters</button>
       </div>
     </div>
@@ -403,7 +419,7 @@ function ratingText(e){ if(e.minRating==null && e.maxRating==null) return "Open"
 
 // ---- module state, filled by boot() ----
 let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null, PEOPLE=[];
-let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn;
+let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn;
 
 // ---- friends (per-device, keyed on stable PodPlay profile id) ----
 const FRIENDS_KEY="apex-podplay-friends";
@@ -412,6 +428,46 @@ function loadFriends(){ try{ const a=JSON.parse(localStorage.getItem(FRIENDS_KEY
 function saveFriends(){ try{ localStorage.setItem(FRIENDS_KEY, JSON.stringify([...friends].map(([id,name])=>({id,name})))); }catch(e){} }
 function toggleFriend(id,name){ if(friends.has(id)) friends.delete(id); else friends.set(id,name); saveFriends(); }
 function friendCountIn(e){ if(!e._attIds) return 0; let c=0; for(const id of friends.keys()) if(e._attIds.has(id)) c++; return c; }
+
+// ---- "me": self-identification (no login) — matches your profile id in the baked rosters ----
+const ME_KEY="apex-podplay-me";
+let me=null;   // {id, name}
+function loadMe(){ try{ const m=JSON.parse(localStorage.getItem(ME_KEY)); if(m&&m.id) me={id:m.id,name:m.name||""}; }catch(e){} }
+function saveMe(){ try{ me ? localStorage.setItem(ME_KEY,JSON.stringify(me)) : localStorage.removeItem(ME_KEY); }catch(e){} }
+function myStatus(e){
+  if(!me) return null;
+  if(e._attIds && e._attIds.has(me.id)) return {t:"in"};
+  if(e._wlIds && e._wlIds.has(me.id)) return {t:"wl", pos:(e._wl.findIndex(a=>a.id===me.id)+1)||null};
+  return null;
+}
+
+// ---- client-side anonymous PodPlay token (for live per-session roster refresh) ----
+const FB_KEY="AIzaSyBlx8IDFiOEXeTEAuXLpvIn4FeOxEfBUxY";
+const API_BASE="https://apexpbclubs.podplay.app/apis/v2";
+let _tokenP=null;
+function anonToken(){
+  return _tokenP || (_tokenP=fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+FB_KEY,
+    {method:"POST",headers:{"content-type":"application/json"},body:'{"returnSecureToken":true}'})
+    .then(r=>r.json()).then(j=>j.idToken).catch(()=>{ _tokenP=null; return null; }));
+}
+const LIVE_SKIP=new Set(["CANCELED","DECLINED","REMOVED","WAITLISTED"]);
+function personOf(rec){ const p=rec.inviteeProfile||rec.profile||rec.invitee||{}; return p.id?{id:p.id,name:[p.firstName,p.lastName].filter(Boolean).join(" ").trim()||p.initials||""}:null; }
+// fetch this event's current roster + waitlist and update it in place; returns true if data present
+async function refreshRoster(e){
+  const tok=await anonToken(); if(!tok) return false;
+  const hz={accept:"application/json",authorization:"Bearer "+tok};
+  try{
+    const inv=await (await fetch(`${API_BASE}/events/${e.id}/invitations?expand=items._links.inviteeProfile&ipp=100`,{headers:hz})).json();
+    const att=[]; for(const r of inv.items||[]){ if(r.type!=="EVENT_SIGNUP"||LIVE_SKIP.has(r.status))continue; const p=personOf(r); if(p)att.push(p); }
+    let wl=[];
+    if(e.full){ try{ const w=await (await fetch(`${API_BASE}/events/${e.id}/waitlist?expand=items._links.inviteeProfile&ipp=100`,{headers:hz})).json(); wl=(w.items||[]).map(personOf).filter(Boolean); }catch(x){} }
+    applyRoster(e, att, wl); e._live=true; return true;
+  }catch(x){ return false; }
+}
+function applyRoster(e, att, wl){
+  e._att=att.length?att:null; e._attIds=att.length?new Set(att.map(a=>a.id)):null; e._attNames=att.length?att.map(a=>a.name.toLowerCase()):null;
+  e._wl=wl.length?wl:null; e._wlIds=wl.length?new Set(wl.map(a=>a.id)):null;
+}
 
 // ---- load ----
 fetch("./events.json",{cache:"no-store"})
@@ -426,20 +482,18 @@ fetch("./events.json",{cache:"no-store"})
 function boot(payload){
   const raw = (payload && payload.events) || [];
   PEOPLE = (payload && payload.people) || [];
-  loadFriends();
+  loadFriends(); loadMe();
   TODAY = todayKey();
+  const resolve = idxs => (idxs||[]).map(i=>PEOPLE[i]).filter(Boolean).map(p=>({id:p[0], name:p[1]}));
   data = raw.map(e=>{
     const lv=levelTokensOf(e);
     const cap=e.capacity||0, signed=e.signedUp||0;
-    // resolve baked attendee indices → {id,name}; precompute id set + lowercased names for matching
-    const att = (e.att||[]).map(i=>PEOPLE[i]).filter(Boolean).map(p=>({id:p[0], name:p[1]}));
-    return {...e, cat:classifyType(e), levelTokens:lv.tokens, isOpen:lv.isOpen,
+    const ev={...e, cat:classifyType(e), levelTokens:lv.tokens, isOpen:lv.isOpen,
       dk:dayKey(e.start), mins:minutesOfDay(e.start), dow:DOWMAP[partsOf(e.start).weekday],
       start_ms:new Date(e.start).getTime(),
-      spotsLeft: cap ? Math.max(0,cap-signed) : null, full: cap ? signed>=cap : false,
-      _att: att.length?att:null,
-      _attIds: att.length?new Set(att.map(a=>a.id)):null,
-      _attNames: att.length?att.map(a=>a.name.toLowerCase()):null};
+      spotsLeft: cap ? Math.max(0,cap-signed) : null, full: cap ? signed>=cap : false};
+    applyRoster(ev, resolve(e.att), resolve(e.wl));   // baked signups + waitlist → id sets + search names
+    return ev;
   }).filter(e=>e.dk>=TODAY && signupWindowOpen(e)).sort((a,b)=>a.start_ms-b.start_ms);
 
   // level filter options = whatever tokens actually exist, sorted 1,1+,2,2+,...
@@ -466,6 +520,7 @@ function boot(payload){
     view: "month", month: null,
     openOnly: false,     // persisted
     friendsOnly: false,  // persisted
+    mineOnly: false,     // persisted
     search: "",          // transient (not persisted)
   };
   loadState();
@@ -488,7 +543,7 @@ function boot(payload){
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify({
     types:[...state.types], levels:[...state.levels], days:[...state.days],
-    tMin:state.tMin, tMax:state.tMax, view:state.view, openOnly:state.openOnly, friendsOnly:state.friendsOnly })); }catch(e){}
+    tMin:state.tMin, tMax:state.tMax, view:state.view, openOnly:state.openOnly, friendsOnly:state.friendsOnly, mineOnly:state.mineOnly })); }catch(e){}
 }
 function loadState(){
   let s; try{ s=JSON.parse(localStorage.getItem(LS_KEY)); }catch(e){ return; }
@@ -502,6 +557,7 @@ function loadState(){
   if(s.view==="list"||s.view==="month") state.view=s.view;
   if(typeof s.openOnly==="boolean") state.openOnly=s.openOnly;
   if(typeof s.friendsOnly==="boolean") state.friendsOnly=s.friendsOnly;
+  if(typeof s.mineOnly==="boolean") state.mineOnly=s.mineOnly;
 }
 
 // ---- filtering ----
@@ -516,6 +572,7 @@ function passNonType(e){
     && e.mins>=state.tMin && e.mins<=state.tMax
     && (!state.openOnly || e.spotsLeft===null || e.spotsLeft>0)
     && (!state.friendsOnly || friendCountIn(e)>0)
+    && (!state.mineOnly || myStatus(e)!==null)
     && (!state.search || e.name.toLowerCase().includes(state.search)
         || (e._attNames && e._attNames.some(n=>n.includes(state.search))));   // search matches session OR a player's name
 }
@@ -542,10 +599,12 @@ function cacheEls(){
   dowToggle=document.getElementById("dowToggle"); lvlChips=document.getElementById("lvlChips"); typeChips=document.getElementById("typeChips");
   searchEl=document.getElementById("search"); openOnlyBtn=document.getElementById("openOnly");
   friendsOnlyBtn=document.getElementById("friendsOnly"); manageFriendsBtn=document.getElementById("manageFriends");
+  mineOnlyBtn=document.getElementById("mineOnly");
 }
 function syncFriendsUI(){
-  manageFriendsBtn.textContent="Friends ("+friends.size+")";
+  manageFriendsBtn.textContent=(me?me.name.split(" ")[0]||"You":"You")+" · Friends ("+friends.size+")";
   friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false");
+  mineOnlyBtn.setAttribute("aria-pressed", state.mineOnly?"true":"false");
 }
 
 // ---- build controls ----
@@ -628,8 +687,9 @@ function evChip(e){
   const b=document.createElement("button");
   b.className="ev cat-"+e.cat+(e.full?(e.spotsLeft===0?" wl":" full"):"");
   b.title=timeLabelFull(e.start)+" · "+e.name;
-  const fc=friendCountIn(e);
-  b.innerHTML='<span class="et num">'+timeLabel(e.start)+(fc?' <span class="fstar">★'+fc+'</span>':'')+'</span><span class="en">'+e.name+'</span>';
+  const fc=friendCountIn(e), ms=myStatus(e);
+  const mem = ms ? (ms.t==="in"?' <span class="mestar">✓</span>':' <span class="mestar wl">◷</span>') : '';
+  b.innerHTML='<span class="et num">'+timeLabel(e.start)+mem+(fc?' <span class="fstar">★'+fc+'</span>':'')+'</span><span class="en">'+e.name+'</span>';
   b.onclick=()=>openSheet(e);
   return b;
 }
@@ -724,11 +784,14 @@ function rowEl(e){
   const price = (e.regular && e.regular>0) ? '<span class="price num">$'+e.regular.toFixed(2).replace(/\.00$/,"")+'</span>' : '<span class="price">Free</span>';
   const fc=friendCountIn(e);
   const fbadge = fc ? '<span class="fbadge">★ '+fc+' friend'+(fc===1?"":"s")+'</span>' : "";
+  const ms=myStatus(e);
+  const mbadge = ms ? (ms.t==="in" ? '<span class="mebadge">✓ You’re in</span>'
+                                   : '<span class="mebadge wl">◷ Waitlist'+(ms.pos?" #"+ms.pos:"")+'</span>') : "";
   r.innerHTML=
     '<div class="rtime num">'+timeLabelFull(e.start)+'<span>'+timeLabelFull(e.end)+'</span></div>'+
     '<div><div class="rname">'+e.name+'</div><div class="rmeta">'+
       '<span class="badge b-'+e.cat+'">'+CATS[e.cat].label+'</span>'+
-      '<span>DUPR '+ratingText(e)+'</span>'+fbadge+'</div></div>'+
+      '<span>DUPR '+ratingText(e)+'</span>'+mbadge+fbadge+'</div></div>'+
     '<div class="rright">'+price+spots+'</div>';
   return r;
 }
@@ -754,16 +817,24 @@ function renderList(){
 }
 
 // ---- modal ----
-let lastFocus=null;
+let lastFocus=null, sheetEvent=null;
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function personLi(p){
+  const on=friends.has(p.id), isme=!!(me&&me.id===p.id), nm=esc(p.name||"Member");
+  return '<li class="'+(isme?"isme ":"")+(on?"isfriend":"")+'">'
+    +'<button class="star" data-id="'+esc(p.id)+'" data-name="'+esc(p.name||"")+'" aria-pressed="'+(on?"true":"false")+'" aria-label="Follow '+nm+'">'+(on?"★":"☆")+'</button>'
+    +'<span class="pn">'+nm+'</span>'+(isme?'<span class="metag">You</span>':'')+'</li>';
+}
+function sortRoster(list){ return [...list].sort((a,b)=>{
+  const ma=(me&&me.id===a.id)?1:0, mb=(me&&me.id===b.id)?1:0; if(ma!==mb) return mb-ma;
+  const fa=friends.has(a.id)?1:0, fb=friends.has(b.id)?1:0; if(fa!==fb) return fb-fa;
+  return String(a.name).localeCompare(String(b.name)); }); }
 function rosterHtml(e){
-  if(!e._att) return e.signedUp ? '<div class="roster"><div class="rhd">Who’s going</div><div class="unavail">Attendee list isn’t published for this session.</div></div>' : "";
-  const sorted=[...e._att].sort((a,b)=>(friends.has(b.id)-friends.has(a.id)) || a.name.localeCompare(b.name));
-  const lis=sorted.map(p=>{
-    const on=friends.has(p.id), nm=esc(p.name||"Member");
-    return '<li class="'+(on?"isfriend":"")+'"><button class="star" data-id="'+esc(p.id)+'" data-name="'+esc(p.name||"")+'" aria-pressed="'+(on?"true":"false")+'" aria-label="Follow '+nm+'">'+(on?"★":"☆")+'</button><span class="pn">'+nm+'</span></li>';
-  }).join("");
-  return '<div class="roster"><div class="rhd">Who’s going · '+e._att.length+'</div><ul>'+lis+'</ul></div>';
+  if(!e._att && !e._wl) return e.signedUp ? '<div class="roster" id="rosterBox"><div class="rhd">Who’s going</div><div class="unavail">Attendee list isn’t published for this session.</div></div>' : '<div class="roster" id="rosterBox"></div>';
+  let h='<div class="roster" id="rosterBox">';
+  if(e._att) h+='<div class="rhd">Who’s going · '+e._att.length+'</div><ul>'+sortRoster(e._att).map(personLi).join("")+'</ul>';
+  if(e._wl)  h+='<div class="rhd wl">Waitlist · '+e._wl.length+'</div><ul>'+e._wl.map(personLi).join("")+'</ul>';   // keep waitlist order = position
+  return h+'</div>';
 }
 function wireStars(){
   sheet.querySelectorAll(".star").forEach(btn=>{
@@ -777,26 +848,52 @@ function wireStars(){
     };
   });
 }
-function openFriends(){
+function openPeople(){
   lastFocus=document.activeElement;
+  const meBox = me
+    ? '<div class="me-box"><div class="cur"><span>You: <span class="who">'+esc(me.name||"Member")+'</span></span>'
+        +'<button class="mini" id="meChange">Change / clear</button></div></div>'
+    : '<div class="me-box"><div class="when" style="color:var(--muted)">Tell the app who you are to see what you’re registered for and your waitlist spots.</div>'
+        +'<input class="me-search" id="meSearch" type="search" placeholder="Search your name…" aria-label="Search your name">'
+        +'<ul class="me-results" id="meResults"></ul></div>';
   const entries=[...friends].sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
-  const body = entries.length
+  const fr = entries.length
     ? '<ul class="fr-list">'+entries.map(([id,name])=>'<li><span class="pn">'+esc(name||"Member")+'</span><button class="rm" data-id="'+esc(id)+'">Remove</button></li>').join("")+'</ul>'
-    : '<div class="fr-empty">You haven’t added anyone yet. Open a session’s <b>Who’s going</b> list and tap the star next to a player to follow them.</div>';
+    : '<div class="fr-empty">No friends yet. Open a session’s <b>Who’s going</b> list and tap a star to follow someone.</div>';
   sheet.innerHTML=
-    '<div class="top"><div class="cat" style="color:var(--star)">Your friends</div>'+
-      '<h3 id="sh-title">Friends ('+friends.size+')</h3>'+
-      '<div class="when">People you follow show a ★ on their sessions. Saved on this device only.</div></div>'+
-    body+
+    '<div class="top"><div class="cat" style="color:var(--mine)">You &amp; friends</div>'+
+      '<h3 id="sh-title">You &amp; friends</h3>'+
+      '<div class="when">Marks what you’re registered for, and flags friends’ sessions with a ★. Saved on this device only.</div></div>'+
+    meBox+
+    '<div class="roster"><div class="rhd">Friends ('+friends.size+')</div></div>'+
+    fr+
     '<div class="foot"><button class="book" id="fdone">Done</button><button class="close" id="x" aria-label="Close">×</button></div>';
   scrim.classList.add("open");
   document.getElementById("x").onclick=closeSheet;
   document.getElementById("fdone").onclick=closeSheet;
-  sheet.querySelectorAll(".rm").forEach(btn=>{ btn.onclick=()=>{ friends.delete(btn.dataset.id); saveFriends(); syncFriendsUI(); render(); openFriends(); }; });
+  sheet.querySelectorAll(".rm").forEach(btn=>{ btn.onclick=()=>{ friends.delete(btn.dataset.id); saveFriends(); syncFriendsUI(); render(); openPeople(); }; });
+  const changeBtn=document.getElementById("meChange");
+  if(changeBtn) changeBtn.onclick=()=>{ me=null; saveMe(); syncFriendsUI(); render(); openPeople(); };
+  const meSearch=document.getElementById("meSearch");
+  if(meSearch){
+    const results=document.getElementById("meResults");
+    const renderMatches=()=>{
+      const q=meSearch.value.trim().toLowerCase(); results.innerHTML="";
+      if(q.length<2) return;
+      const matches=[];
+      for(const [id,name] of PEOPLE){ if(name && name.toLowerCase().includes(q)){ matches.push([id,name]); if(matches.length>=8) break; } }
+      results.innerHTML = matches.length
+        ? matches.map(([id,name])=>'<li><span class="pn">'+esc(name)+'</span><button class="pick" data-id="'+esc(id)+'" data-name="'+esc(name)+'">This is me</button></li>').join("")
+        : '<li class="unavail">No players match. You must have signed up for a recent session to appear here.</li>';
+      results.querySelectorAll(".pick").forEach(b=>{ b.onclick=()=>{ me={id:b.dataset.id,name:b.dataset.name}; saveMe(); syncFriendsUI(); render(); openPeople(); }; });
+    };
+    meSearch.addEventListener("input", renderMatches);
+    setTimeout(()=>meSearch.focus(),0);
+  }
   document.getElementById("x").focus();
 }
 function openSheet(e){
-  lastFocus=document.activeElement;
+  lastFocus=document.activeElement; sheetEvent=e;
   const d=new Date(e.start);
   const dateStr=d.toLocaleDateString("en-US",{timeZone:TZ,weekday:"long",month:"long",day:"numeric"});
   const spots = e.spotsLeft===null ? "Open registration" :
@@ -826,9 +923,19 @@ function openSheet(e){
   wireStars();
   document.getElementById("x").onclick=closeSheet;
   document.getElementById("x").focus();
+  // live-refresh this session's roster so your status / who's going is exact-now
+  if(e.signedUp && !e._live){
+    refreshRoster(e).then(ok=>{
+      if(ok && sheetEvent===e && scrim.classList.contains("open")){
+        const box=sheet.querySelector("#rosterBox");
+        if(box){ box.outerHTML=rosterHtml(e); wireStars(); }
+        render();   // refresh badges/counts behind the modal
+      }
+    });
+  }
 }
 function drow(k,v){ return '<div class="drow"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>'; }
-function closeSheet(){ scrim.classList.remove("open"); if(lastFocus)lastFocus.focus(); }
+function closeSheet(){ scrim.classList.remove("open"); sheetEvent=null; if(lastFocus)lastFocus.focus(); }
 
 // ---- view + wiring ----
 function syncView(){
@@ -847,7 +954,8 @@ function wire(){
   openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false");
   openOnlyBtn.onclick=()=>{ state.openOnly=!state.openOnly; openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false"); saveState(); render(); };
   friendsOnlyBtn.onclick=()=>{ state.friendsOnly=!state.friendsOnly; friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false"); saveState(); render(); };
-  manageFriendsBtn.onclick=openFriends;
+  mineOnlyBtn.onclick=()=>{ if(!me){ openPeople(); return; } state.mineOnly=!state.mineOnly; mineOnlyBtn.setAttribute("aria-pressed", state.mineOnly?"true":"false"); saveState(); render(); };
+  manageFriendsBtn.onclick=openPeople;
   syncFriendsUI();
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
   document.addEventListener("keydown",ev=>{ if(ev.key==="Escape"&&scrim.classList.contains("open"))closeSheet(); });
@@ -857,11 +965,11 @@ function resetFilters(){
   try{ localStorage.removeItem(LS_KEY); }catch(e){}
   state.types=new Set(Object.keys(CATS)); state.levels=new Set(["all"]);
   state.days=new Set([0,1,2,3,4,5,6]); state.tMin=T_FLOOR; state.tMax=T_CEIL; state.view="month";
-  state.openOnly=false; state.friendsOnly=false; state.search="";
+  state.openOnly=false; state.friendsOnly=false; state.mineOnly=false; state.search="";
   tmin.value=T_FLOOR; tmax.value=T_CEIL; searchEl.value="";
-  openOnlyBtn.setAttribute("aria-pressed","false"); friendsOnlyBtn.setAttribute("aria-pressed","false");
+  openOnlyBtn.setAttribute("aria-pressed","false"); friendsOnlyBtn.setAttribute("aria-pressed","false"); mineOnlyBtn.setAttribute("aria-pressed","false");
   syncPressed(typeChips,"c-",state.types); syncLevels(); syncDow(); updateRangeUI(); syncView();
-  render();
+  render();   // note: does not clear your identity (me) or friends list
 }
 
 // ---- PWA: install + offline ----

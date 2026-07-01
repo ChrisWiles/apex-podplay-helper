@@ -109,25 +109,42 @@ async function fetchRosters(token, raw) {
       new Date(e.startTime).getTime() <= now + ATTENDEE_HORIZON_MS,
   );
   const out = new Map();
+  const headers = { accept: "application/json", authorization: `Bearer ${token}` };
+  const person = (rec) => {
+    const p = rec.inviteeProfile || rec.profile || rec.invitee || {};
+    if (!p.id) return null;
+    return { id: p.id, name: [p.firstName, p.lastName].filter(Boolean).join(" ").trim() || p.initials || "" };
+  };
   let i = 0;
   const worker = async () => {
     while (i < targets.length) {
       const e = targets[i++];
       try {
-        const j = await fetchJson(
-          `${API}/events/${e.id}/invitations?expand=items._links.inviteeProfile`,
-          { headers: { accept: "application/json", authorization: `Bearer ${token}` } },
+        const inv = await fetchJson(
+          `${API}/events/${e.id}/invitations?expand=items._links.inviteeProfile&ipp=100`,
+          { headers },
           `roster ${e.id}`,
         );
-        const list = [];
-        for (const inv of j.items || []) {
-          if (inv.type !== "EVENT_SIGNUP" || SKIP_STATUS.has(inv.status)) continue;
-          const p = inv.inviteeProfile || {};
-          if (!p.id) continue;
-          const name = [p.firstName, p.lastName].filter(Boolean).join(" ").trim() || p.initials || "";
-          list.push({ id: p.id, name });
+        const att = [];
+        for (const rec of inv.items || []) {
+          if (rec.type !== "EVENT_SIGNUP" || SKIP_STATUS.has(rec.status)) continue;
+          const p = person(rec);
+          if (p) att.push(p);
         }
-        out.set(e.id, list);
+        // waitlist only exists on full events — fetch it just for those (ordered = position)
+        let wl = [];
+        const cap = (e.totalTeams || 0) * (e.teamSize || 1);
+        if (cap && (e.signups?._total || 0) >= cap) {
+          try {
+            const w = await fetchJson(
+              `${API}/events/${e.id}/waitlist?expand=items._links.inviteeProfile&ipp=100`,
+              { headers },
+              `waitlist ${e.id}`,
+            );
+            wl = (w.items || []).map(person).filter(Boolean);
+          } catch { /* no waitlist / skip */ }
+        }
+        out.set(e.id, { att, wl });
       } catch {
         /* skip this event's roster — never fail the whole scrape over one */
       }
@@ -161,18 +178,22 @@ async function main() {
     return i;
   };
 
+  let waitlists = 0;
   const events = raw
     .map((e) => {
       const s = slim(e);
       const roster = rosters.get(e.id);
-      if (roster && roster.length) s.att = roster.map((p) => personIndex(p.id, p.name));
+      if (roster) {
+        if (roster.att.length) s.att = roster.att.map((p) => personIndex(p.id, p.name));
+        if (roster.wl.length) { s.wl = roster.wl.map((p) => personIndex(p.id, p.name)); waitlists++; }
+      }
       return s;
     })
     .sort((a, b) => new Date(a.start) - new Date(b.start));
 
   const payload = { generatedAt: new Date().toISOString(), count: events.length, people, events };
   await (await import("node:fs/promises")).writeFile(OUT, JSON.stringify(payload));
-  console.log(`Wrote ${events.length} events + ${people.length} people (${rosters.size} rosters) to events.json`);
+  console.log(`Wrote ${events.length} events + ${people.length} people (${rosters.size} rosters, ${waitlists} waitlists) to events.json`);
 }
 
 main().catch((err) => {
