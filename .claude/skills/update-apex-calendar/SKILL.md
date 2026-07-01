@@ -59,13 +59,16 @@ Run from the repo root.
    > Pushing is the deploy. If a `/loop` runs this unattended, that is the
    > standing authorization to push **this repo**. Never force-push.
 
-6. **Verify the live site picked it up** (Pages takes ~1 min):
+6. **Verify the live site picked it up** — optional. This repo's GitHub Pages
+   (legacy branch builder) lags **~7–8 minutes** behind a push, so a fresh deploy
+   won't show immediately; that's expected, not a failure.
    ```bash
    curl -s "https://chriswiles.github.io/apex-podplay-helper/events.json?ts=$(date +%s)" \
-     | node -e "process.stdin.on('data',d=>{try{const j=JSON.parse(d);console.log('live generatedAt:',j.generatedAt,'count:',j.count)}catch(e){}})"
+     | python3 -c "import sys,json; j=json.load(sys.stdin); print('live generatedAt:', j['generatedAt'], 'count:', j['count'])"
    ```
-   Confirm `generatedAt` advanced to roughly now. It can lag a minute — re-check
-   once if it still shows the old timestamp.
+   Confirm `generatedAt` advanced to roughly now. **When running unattended via
+   `/loop`, skip this wait** — the push *is* the deploy, and blocking ~8 minutes
+   every cycle isn't worth it. Only verify manually if a deploy seems stuck.
 
 ## Report
 
@@ -75,5 +78,10 @@ and the live `generatedAt` after deploy. If any step aborted, say which and why.
 ## Notes
 
 - No external dependencies; needs Node 18+ and network access.
+- `events.json` holds the **full scrape** (~900 events, `count`). The live site
+  deliberately shows far fewer — the client hides sessions whose PodPlay sign-up
+  window hasn't opened yet (regular +7d / member +14d). So the `count` guard in
+  steps 1&3 tracks *scrape health*, not visible sessions; don't be alarmed that
+  the site shows a few hundred while `count` is ~900.
 - If auth or the events endpoint changes upstream, `npm run fetch` will fail
   loudly (non-zero) rather than deploy bad data — investigate `scripts/fetch-events.mjs`.
