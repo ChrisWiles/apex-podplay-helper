@@ -10,7 +10,8 @@ A fast, filterable calendar for **[Apex Pickleball Clubs](https://apexpbclubs.po
 
 - Shows every session **currently open for sign-up** in a **month grid** or **agenda list** (hides sessions past PodPlay's advance-registration window).
 - Filters by **type** (open play / clinic / social / special), **skill level** (L1–L6 incl. `+` bands like L3+), **day of week**, and **start-time range**.
-- **Search** by session name and an **"open spots only"** toggle.
+- **Search** by session **or player** name, and an **"open spots only"** toggle.
+- **Friends** — star players in a session's "Who's going" list; sessions your friends signed up for get a **★ badge**, and you can filter to just those. Your friends list stays on your device.
 - On mobile, tap **multiple days** on the calendar to see just those days' sessions.
 - Each session opens a card with DUPR range, price (drop-in / member), spots left or waitlist, and a **Book on PodPlay** deep link.
 - **Installable** (Add to Home Screen) and works **offline** (PWA) — the shell and last-loaded data are cached.

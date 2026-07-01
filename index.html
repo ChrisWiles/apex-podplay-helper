@@ -16,7 +16,7 @@
     --brand:#2457d6; --lime:#c7e63f;
     --c-open:#2563c9; --c-clinic:#c6741b; --c-social:#0e8c7f; --c-special:#6d3be0;
     --c-open-b:#eaf1fd; --c-clinic-b:#fbf0e2; --c-social-b:#e6f5f2; --c-special-b:#f0ebfc;
-    --full:#b03636; --shadow:0 1px 2px rgba(16,23,37,.06),0 8px 24px rgba(16,23,37,.06);
+    --full:#b03636; --star:#e0a400; --shadow:0 1px 2px rgba(16,23,37,.06),0 8px 24px rgba(16,23,37,.06);
     --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
   *{box-sizing:border-box}
@@ -227,6 +227,29 @@
   .close:hover{border-color:var(--full);color:var(--full)}
   .note{font-size:11.5px;color:var(--muted-2);text-align:center;padding:0 22px 18px}
 
+  /* friends: badges, roster, manager */
+  .fbadge{color:var(--star);font-weight:700;font-variant-numeric:tabular-nums}
+  .ev .fstar{color:var(--star);font-weight:700}
+  .roster{padding:2px 22px 6px}
+  .roster .rhd{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:8px 0}
+  .roster ul{list-style:none;margin:0;padding:0;max-height:210px;overflow:auto;display:flex;flex-direction:column;gap:1px}
+  .roster li{display:flex;align-items:center;gap:9px;padding:5px 6px;border-radius:8px}
+  .roster li.isfriend{background:var(--c-open-b)}
+  .roster .pn{font-weight:600;font-size:14px}
+  .roster .unavail{color:var(--muted);font-size:13px;padding:6px 4px}
+  .star{width:28px;height:28px;flex:none;border:0;background:none;cursor:pointer;font-size:16px;line-height:1;color:var(--muted-2);border-radius:8px}
+  .star[aria-pressed="true"]{color:var(--star)}
+  .star:hover{background:var(--hair-2)}
+  .star:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+  .fr-empty{padding:8px 22px 20px;color:var(--muted);font-size:13.5px}
+  .fr-list{list-style:none;margin:0;padding:2px 14px 12px;display:flex;flex-direction:column;gap:2px;max-height:56vh;overflow:auto}
+  .fr-list li{display:flex;align-items:center;gap:10px;padding:9px 8px;border-bottom:1px solid var(--hair-2)}
+  .fr-list li:last-child{border-bottom:0}
+  .fr-list .pn{font-weight:600}
+  .fr-list .rm{margin-left:auto;border:1px solid var(--hair);background:var(--card);color:var(--muted);cursor:pointer;
+    font-size:12px;font-weight:600;border-radius:7px;padding:4px 9px}
+  .fr-list .rm:hover{border-color:var(--full);color:var(--full)}
+
   @media(max-width:720px){
     .cell{min-height:54px;gap:5px;align-items:center;padding:7px 3px}
     .cell .ev,.cell .more{display:none}
@@ -294,7 +317,9 @@
           <span class="time-label num" id="timeLabel"></span>
         </div>
         <div class="spacer"></div>
+        <button class="toggle" id="friendsOnly" type="button" aria-pressed="false"><span class="tk"></span>★ Friends</button>
         <button class="toggle" id="openOnly" type="button" aria-pressed="false"><span class="tk"></span>Open spots only</button>
+        <button class="reset" id="manageFriends" type="button">Friends (0)</button>
         <button class="reset" id="reset" type="button">Reset filters</button>
       </div>
     </div>
@@ -377,8 +402,16 @@ function minLabel(m){ let h=Math.floor(m/60), mm=m%60; const ap=h>=12?"PM":"AM";
 function ratingText(e){ if(e.minRating==null && e.maxRating==null) return "Open"; return (e.minRating!=null?e.minRating:"")+"–"+(e.maxRating!=null?e.maxRating:""); }
 
 // ---- module state, filled by boot() ----
-let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null;
-let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn;
+let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null, PEOPLE=[];
+let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn;
+
+// ---- friends (per-device, keyed on stable PodPlay profile id) ----
+const FRIENDS_KEY="apex-podplay-friends";
+let friends=new Map();   // id -> name
+function loadFriends(){ try{ const a=JSON.parse(localStorage.getItem(FRIENDS_KEY)); if(Array.isArray(a)) a.forEach(f=>{ if(f&&f.id) friends.set(f.id, f.name||""); }); }catch(e){} }
+function saveFriends(){ try{ localStorage.setItem(FRIENDS_KEY, JSON.stringify([...friends].map(([id,name])=>({id,name})))); }catch(e){} }
+function toggleFriend(id,name){ if(friends.has(id)) friends.delete(id); else friends.set(id,name); saveFriends(); }
+function friendCountIn(e){ if(!e._attIds) return 0; let c=0; for(const id of friends.keys()) if(e._attIds.has(id)) c++; return c; }
 
 // ---- load ----
 fetch("./events.json",{cache:"no-store"})
@@ -392,14 +425,21 @@ fetch("./events.json",{cache:"no-store"})
 
 function boot(payload){
   const raw = (payload && payload.events) || [];
+  PEOPLE = (payload && payload.people) || [];
+  loadFriends();
   TODAY = todayKey();
   data = raw.map(e=>{
     const lv=levelTokensOf(e);
     const cap=e.capacity||0, signed=e.signedUp||0;
+    // resolve baked attendee indices → {id,name}; precompute id set + lowercased names for matching
+    const att = (e.att||[]).map(i=>PEOPLE[i]).filter(Boolean).map(p=>({id:p[0], name:p[1]}));
     return {...e, cat:classifyType(e), levelTokens:lv.tokens, isOpen:lv.isOpen,
       dk:dayKey(e.start), mins:minutesOfDay(e.start), dow:DOWMAP[partsOf(e.start).weekday],
       start_ms:new Date(e.start).getTime(),
-      spotsLeft: cap ? Math.max(0,cap-signed) : null, full: cap ? signed>=cap : false};
+      spotsLeft: cap ? Math.max(0,cap-signed) : null, full: cap ? signed>=cap : false,
+      _att: att.length?att:null,
+      _attIds: att.length?new Set(att.map(a=>a.id)):null,
+      _attNames: att.length?att.map(a=>a.name.toLowerCase()):null};
   }).filter(e=>e.dk>=TODAY && signupWindowOpen(e)).sort((a,b)=>a.start_ms-b.start_ms);
 
   // level filter options = whatever tokens actually exist, sorted 1,1+,2,2+,...
@@ -424,8 +464,9 @@ function boot(payload){
     days: new Set([0,1,2,3,4,5,6]),
     tMin: T_FLOOR, tMax: T_CEIL,
     view: "month", month: null,
-    openOnly: false,   // persisted
-    search: "",        // transient (not persisted)
+    openOnly: false,     // persisted
+    friendsOnly: false,  // persisted
+    search: "",          // transient (not persisted)
   };
   loadState();
 
@@ -447,7 +488,7 @@ function boot(payload){
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify({
     types:[...state.types], levels:[...state.levels], days:[...state.days],
-    tMin:state.tMin, tMax:state.tMax, view:state.view, openOnly:state.openOnly })); }catch(e){}
+    tMin:state.tMin, tMax:state.tMax, view:state.view, openOnly:state.openOnly, friendsOnly:state.friendsOnly })); }catch(e){}
 }
 function loadState(){
   let s; try{ s=JSON.parse(localStorage.getItem(LS_KEY)); }catch(e){ return; }
@@ -460,6 +501,7 @@ function loadState(){
   if(state.tMin>state.tMax){ state.tMin=T_FLOOR; state.tMax=T_CEIL; }
   if(s.view==="list"||s.view==="month") state.view=s.view;
   if(typeof s.openOnly==="boolean") state.openOnly=s.openOnly;
+  if(typeof s.friendsOnly==="boolean") state.friendsOnly=s.friendsOnly;
 }
 
 // ---- filtering ----
@@ -473,7 +515,9 @@ function passNonType(e){
     && state.days.has(e.dow)
     && e.mins>=state.tMin && e.mins<=state.tMax
     && (!state.openOnly || e.spotsLeft===null || e.spotsLeft>0)
-    && (!state.search || e.name.toLowerCase().includes(state.search));
+    && (!state.friendsOnly || friendCountIn(e)>0)
+    && (!state.search || e.name.toLowerCase().includes(state.search)
+        || (e._attNames && e._attNames.some(n=>n.includes(state.search))));   // search matches session OR a player's name
 }
 function filtered(){ return data.filter(e => state.types.has(e.cat) && passNonType(e)); }
 
@@ -497,6 +541,11 @@ function cacheEls(){
   rfill=document.getElementById("rfill"); timeLbl=document.getElementById("timeLabel");
   dowToggle=document.getElementById("dowToggle"); lvlChips=document.getElementById("lvlChips"); typeChips=document.getElementById("typeChips");
   searchEl=document.getElementById("search"); openOnlyBtn=document.getElementById("openOnly");
+  friendsOnlyBtn=document.getElementById("friendsOnly"); manageFriendsBtn=document.getElementById("manageFriends");
+}
+function syncFriendsUI(){
+  manageFriendsBtn.textContent="Friends ("+friends.size+")";
+  friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false");
 }
 
 // ---- build controls ----
@@ -573,13 +622,14 @@ function setMonth(ym){ const [y,m]=ym.split("-").map(Number); state.month={y,m};
 function monthLabel(){ return new Date(state.month.y, state.month.m-1, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"}); }
 
 // ---- render ----
-function render(){ updateCounts(); if(state.view==="month") renderMonth(); else renderList(); }
+function render(){ syncFriendsUI(); updateCounts(); if(state.view==="month") renderMonth(); else renderList(); }
 
 function evChip(e){
   const b=document.createElement("button");
   b.className="ev cat-"+e.cat+(e.full?(e.spotsLeft===0?" wl":" full"):"");
   b.title=timeLabelFull(e.start)+" · "+e.name;
-  b.innerHTML='<span class="et num">'+timeLabel(e.start)+'</span><span class="en">'+e.name+'</span>';
+  const fc=friendCountIn(e);
+  b.innerHTML='<span class="et num">'+timeLabel(e.start)+(fc?' <span class="fstar">★'+fc+'</span>':'')+'</span><span class="en">'+e.name+'</span>';
   b.onclick=()=>openSheet(e);
   return b;
 }
@@ -672,11 +722,13 @@ function rowEl(e){
     (e.spotsLeft===0 ? '<span class="spots none">'+(e.full?"Waitlist":"Full")+'</span>'
                      : '<span class="spots'+(e.spotsLeft<=4?" low":"")+'">'+e.spotsLeft+' spot'+(e.spotsLeft===1?"":"s")+' left</span>');
   const price = (e.regular && e.regular>0) ? '<span class="price num">$'+e.regular.toFixed(2).replace(/\.00$/,"")+'</span>' : '<span class="price">Free</span>';
+  const fc=friendCountIn(e);
+  const fbadge = fc ? '<span class="fbadge">★ '+fc+' friend'+(fc===1?"":"s")+'</span>' : "";
   r.innerHTML=
     '<div class="rtime num">'+timeLabelFull(e.start)+'<span>'+timeLabelFull(e.end)+'</span></div>'+
     '<div><div class="rname">'+e.name+'</div><div class="rmeta">'+
       '<span class="badge b-'+e.cat+'">'+CATS[e.cat].label+'</span>'+
-      '<span>DUPR '+ratingText(e)+'</span></div></div>'+
+      '<span>DUPR '+ratingText(e)+'</span>'+fbadge+'</div></div>'+
     '<div class="rright">'+price+spots+'</div>';
   return r;
 }
@@ -703,6 +755,46 @@ function renderList(){
 
 // ---- modal ----
 let lastFocus=null;
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function rosterHtml(e){
+  if(!e._att) return e.signedUp ? '<div class="roster"><div class="rhd">Who’s going</div><div class="unavail">Attendee list isn’t published for this session.</div></div>' : "";
+  const sorted=[...e._att].sort((a,b)=>(friends.has(b.id)-friends.has(a.id)) || a.name.localeCompare(b.name));
+  const lis=sorted.map(p=>{
+    const on=friends.has(p.id), nm=esc(p.name||"Member");
+    return '<li class="'+(on?"isfriend":"")+'"><button class="star" data-id="'+esc(p.id)+'" data-name="'+esc(p.name||"")+'" aria-pressed="'+(on?"true":"false")+'" aria-label="Follow '+nm+'">'+(on?"★":"☆")+'</button><span class="pn">'+nm+'</span></li>';
+  }).join("");
+  return '<div class="roster"><div class="rhd">Who’s going · '+e._att.length+'</div><ul>'+lis+'</ul></div>';
+}
+function wireStars(){
+  sheet.querySelectorAll(".star").forEach(btn=>{
+    btn.onclick=()=>{
+      toggleFriend(btn.dataset.id, btn.dataset.name);
+      const on=friends.has(btn.dataset.id);
+      btn.setAttribute("aria-pressed", on?"true":"false");
+      btn.textContent=on?"★":"☆";
+      btn.closest("li").classList.toggle("isfriend", on);
+      syncFriendsUI(); render();   // refresh badges/counts behind the modal
+    };
+  });
+}
+function openFriends(){
+  lastFocus=document.activeElement;
+  const entries=[...friends].sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
+  const body = entries.length
+    ? '<ul class="fr-list">'+entries.map(([id,name])=>'<li><span class="pn">'+esc(name||"Member")+'</span><button class="rm" data-id="'+esc(id)+'">Remove</button></li>').join("")+'</ul>'
+    : '<div class="fr-empty">You haven’t added anyone yet. Open a session’s <b>Who’s going</b> list and tap the star next to a player to follow them.</div>';
+  sheet.innerHTML=
+    '<div class="top"><div class="cat" style="color:var(--star)">Your friends</div>'+
+      '<h3 id="sh-title">Friends ('+friends.size+')</h3>'+
+      '<div class="when">People you follow show a ★ on their sessions. Saved on this device only.</div></div>'+
+    body+
+    '<div class="foot"><button class="book" id="fdone">Done</button><button class="close" id="x" aria-label="Close">×</button></div>';
+  scrim.classList.add("open");
+  document.getElementById("x").onclick=closeSheet;
+  document.getElementById("fdone").onclick=closeSheet;
+  sheet.querySelectorAll(".rm").forEach(btn=>{ btn.onclick=()=>{ friends.delete(btn.dataset.id); saveFriends(); syncFriendsUI(); render(); openFriends(); }; });
+  document.getElementById("x").focus();
+}
 function openSheet(e){
   lastFocus=document.activeElement;
   const d=new Date(e.start);
@@ -724,12 +816,14 @@ function openSheet(e){
       drow("Price", price)+
       drow("Availability", spots)+
     '</div>'+
+    rosterHtml(e)+
     '<div class="foot">'+
       '<a class="book" href="'+BOOK(e.id)+'" target="_blank" rel="noopener">Book on PodPlay →</a>'+
       '<button class="close" id="x" aria-label="Close">×</button>'+
     '</div>'+
     '<div class="note">Opens the session on apexpbclubs.podplay.app · a PodPlay account is required to reserve.</div>';
   scrim.classList.add("open");
+  wireStars();
   document.getElementById("x").onclick=closeSheet;
   document.getElementById("x").focus();
 }
@@ -752,6 +846,9 @@ function wire(){
   searchEl.addEventListener("input",()=>{ state.search=searchEl.value.trim().toLowerCase(); render(); });   // transient, not persisted
   openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false");
   openOnlyBtn.onclick=()=>{ state.openOnly=!state.openOnly; openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false"); saveState(); render(); };
+  friendsOnlyBtn.onclick=()=>{ state.friendsOnly=!state.friendsOnly; friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false"); saveState(); render(); };
+  manageFriendsBtn.onclick=openFriends;
+  syncFriendsUI();
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
   document.addEventListener("keydown",ev=>{ if(ev.key==="Escape"&&scrim.classList.contains("open"))closeSheet(); });
   MQ.addEventListener("change",()=>{ selDays=new Set(); defaultedMonth=null; render(); });   // re-render when crossing the mobile breakpoint
@@ -760,8 +857,9 @@ function resetFilters(){
   try{ localStorage.removeItem(LS_KEY); }catch(e){}
   state.types=new Set(Object.keys(CATS)); state.levels=new Set(["all"]);
   state.days=new Set([0,1,2,3,4,5,6]); state.tMin=T_FLOOR; state.tMax=T_CEIL; state.view="month";
-  state.openOnly=false; state.search="";
-  tmin.value=T_FLOOR; tmax.value=T_CEIL; searchEl.value=""; openOnlyBtn.setAttribute("aria-pressed","false");
+  state.openOnly=false; state.friendsOnly=false; state.search="";
+  tmin.value=T_FLOOR; tmax.value=T_CEIL; searchEl.value="";
+  openOnlyBtn.setAttribute("aria-pressed","false"); friendsOnlyBtn.setAttribute("aria-pressed","false");
   syncPressed(typeChips,"c-",state.types); syncLevels(); syncDow(); updateRangeUI(); syncView();
   render();
 }

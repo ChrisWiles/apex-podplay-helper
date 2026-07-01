@@ -94,24 +94,85 @@ function slim(e) {
   };
 }
 
+const ATTENDEE_HORIZON_MS = 21 * 86400000; // only pull rosters for near-term events (matches the sign-up window + buffer)
+const SKIP_STATUS = new Set(["CANCELED", "DECLINED", "REMOVED", "WAITLISTED"]);
+
+// Fetch attendee rosters (throttled) for near-term events that publish them.
+// Returns Map<eventId, Array<{id,name}>>.
+async function fetchRosters(token, raw) {
+  const now = Date.now();
+  const targets = raw.filter(
+    (e) =>
+      (e.features || []).includes("PUBLIC_ATTENDEE_LIST") &&
+      (e.signups?._total || 0) > 0 &&
+      new Date(e.startTime).getTime() >= now - 86400000 &&
+      new Date(e.startTime).getTime() <= now + ATTENDEE_HORIZON_MS,
+  );
+  const out = new Map();
+  let i = 0;
+  const worker = async () => {
+    while (i < targets.length) {
+      const e = targets[i++];
+      try {
+        const j = await fetchJson(
+          `${API}/events/${e.id}/invitations?expand=items._links.inviteeProfile`,
+          { headers: { accept: "application/json", authorization: `Bearer ${token}` } },
+          `roster ${e.id}`,
+        );
+        const list = [];
+        for (const inv of j.items || []) {
+          if (inv.type !== "EVENT_SIGNUP" || SKIP_STATUS.has(inv.status)) continue;
+          const p = inv.inviteeProfile || {};
+          if (!p.id) continue;
+          const name = [p.firstName, p.lastName].filter(Boolean).join(" ").trim() || p.initials || "";
+          list.push({ id: p.id, name });
+        }
+        out.set(e.id, list);
+      } catch {
+        /* skip this event's roster — never fail the whole scrape over one */
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
+  return out;
+}
+
 async function main() {
   const token = await getToken();
-  const raw = await fetchAllEvents(token);
-  const events = raw
-    .filter((e) => !e.isCanceled && e.startTime)
-    .map(slim)
-    .sort((a, b) => new Date(a.start) - new Date(b.start));
+  const raw = (await fetchAllEvents(token)).filter((e) => !e.isCanceled && e.startTime);
 
-  if (events.length < SANITY_FLOOR) {
+  if (raw.length < SANITY_FLOOR) {
     throw new Error(
-      `Only ${events.length} events scraped (< ${SANITY_FLOOR}). Assuming a broken/blocked ` +
+      `Only ${raw.length} events scraped (< ${SANITY_FLOOR}). Assuming a broken/blocked ` +
         `response; refusing to overwrite events.json.`,
     );
   }
 
-  const payload = { generatedAt: new Date().toISOString(), count: events.length, events };
+  const rosters = await fetchRosters(token, raw);
+
+  // normalize attendees: each person stored once in `people`, events reference by index
+  const people = [];
+  const idIndex = new Map();
+  const personIndex = (id, name) => {
+    if (idIndex.has(id)) return idIndex.get(id);
+    const i = people.length;
+    people.push([id, name]);
+    idIndex.set(id, i);
+    return i;
+  };
+
+  const events = raw
+    .map((e) => {
+      const s = slim(e);
+      const roster = rosters.get(e.id);
+      if (roster && roster.length) s.att = roster.map((p) => personIndex(p.id, p.name));
+      return s;
+    })
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+
+  const payload = { generatedAt: new Date().toISOString(), count: events.length, people, events };
   await (await import("node:fs/promises")).writeFile(OUT, JSON.stringify(payload));
-  console.log(`Wrote ${events.length} events to events.json (generated ${payload.generatedAt})`);
+  console.log(`Wrote ${events.length} events + ${people.length} people (${rosters.size} rosters) to events.json`);
 }
 
 main().catch((err) => {

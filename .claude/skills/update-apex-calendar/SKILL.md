@@ -78,6 +78,12 @@ and the live `generatedAt` after deploy. If any step aborted, say which and why.
 ## Notes
 
 - No external dependencies; needs Node 18+ and network access.
+- The scrape also pulls **attendee rosters** for near-term sessions that publish
+  them (`PUBLIC_ATTENDEE_LIST`) — one throttled request per such event, so a run
+  takes ~10-20s longer. `events.json` gets a normalized `people` table (deduped
+  `[id, name]`) and each event an `att` index array. This publishes attendee
+  names for those public sessions; that's intentional (powers the friends
+  feature) and refreshes each run.
 - `events.json` holds the **full scrape** (~900 events, `count`). The live site
   deliberately shows far fewer — the client hides sessions whose PodPlay sign-up
   window hasn't opened yet (regular +7d / member +14d). So the `count` guard in
