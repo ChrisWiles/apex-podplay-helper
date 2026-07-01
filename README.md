@@ -13,6 +13,7 @@ A fast, filterable calendar for **[Apex Pickleball Clubs](https://apexpbclubs.po
 - **Search** by session **or player** name, an **"open spots only"** toggle, and a **Women's** filter — show all, **only** ladies' sessions (Ladies Night, Ladies Matchups, …), or **hide** them.
 - **Friends** — star players in a session's "Who's going" list; sessions your friends signed up for get a **★ badge**, and you can filter to just those. Your friends list stays on your device.
 - **"That's me"** — tell the app who you are (search your name, no login) and it flags what you're **registered** for ("✓ You're in") and your **waitlist** spots ("◷ Waitlist #N"), with a "My sessions" filter. Opening a session live-refreshes its roster so your status is current.
+- **Double-booking warnings** — since you can only be on one court at a time, any session that overlaps a time slot you're already registered for is flagged ("⏱ Booked: …") on the calendar, in lists, and on the card, naming which session you're already in.
 - On mobile, tap **multiple days** on the calendar to see just those days' sessions.
 - Each session opens a card with DUPR range, price (drop-in / member), spots left or waitlist — plus **how full it is** (% full with a fill meter and court count, 6 players per court) — and a **Book on PodPlay** deep link.
 - **Installable** (Add to Home Screen) and works **offline** (PWA) — the shell and last-loaded data are cached.

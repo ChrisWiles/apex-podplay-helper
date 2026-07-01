@@ -16,7 +16,8 @@
     --brand:#2457d6; --lime:#c7e63f;
     --c-open:#2563c9; --c-clinic:#c6741b; --c-social:#0e8c7f; --c-special:#6d3be0;
     --c-open-b:#eaf1fd; --c-clinic-b:#fbf0e2; --c-social-b:#e6f5f2; --c-special-b:#f0ebfc;
-    --full:#b03636; --star:#e0a400; --mine:#178a3d; --shadow:0 1px 2px rgba(16,23,37,.06),0 8px 24px rgba(16,23,37,.06);
+    --full:#b03636; --star:#e0a400; --mine:#178a3d; --conflict:#55606e; --conflict-b:#eef1f5;
+    --shadow:0 1px 2px rgba(16,23,37,.06),0 8px 24px rgba(16,23,37,.06);
     --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
   *{box-sizing:border-box}
@@ -265,6 +266,15 @@
   .row.minewl:hover{background:#f6ecd8}
   .daymine{position:absolute;top:4px;right:5px;color:var(--mine);font-size:11px;font-weight:800;line-height:1}
   .daymine.wl{color:var(--c-clinic)}
+  /* you can only be on one court at a time — flag sessions that clash with something you're already booked into */
+  .ev .cflag{color:var(--conflict);font-weight:800}
+  .ev.conflict{box-shadow:inset 0 0 0 1.5px var(--conflict);opacity:.94}
+  .cbadge{color:var(--conflict);font-weight:700}
+  .row.conflict{background:var(--conflict-b)}
+  .row.conflict:hover{background:#e3e7ed}
+  .conflictnote{margin:0 22px 14px;padding:10px 12px;border-radius:10px;background:var(--conflict-b);
+    display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.4;color:var(--ink-soft)}
+  .conflictnote b{color:var(--ink)}
   .roster li.isme{background:#e7f6ec}
   .roster .metag{margin-left:auto;font-size:11px;font-weight:700;color:var(--mine);text-transform:uppercase;letter-spacing:.06em}
   .roster .rhd.wl{color:var(--c-clinic)}
@@ -543,6 +553,16 @@ function myStatus(e){
   if(e._wlIds && e._wlIds.has(me.id)) return {t:"wl", pos:(e._wl.findIndex(a=>a.id===me.id)+1)||null};
   return null;
 }
+// you can only physically be on one court at a time: flag sessions that overlap
+// something you're actually confirmed for (a waitlist spot isn't a real conflict yet).
+// recomputed once per render() — see there — not per event, since it's the same for every event.
+let myRegistered=[];
+function refreshMyRegistered(){ myRegistered = me ? data.filter(e=>{ const s=myStatus(e); return s&&s.t==="in"; }) : []; }
+function conflictEvent(e){
+  if(!myRegistered.length) return null;
+  const s=myStatus(e); if(s && s.t==="in") return null;   // this *is* the booked one — not a conflict with itself
+  return myRegistered.find(o=>o.id!==e.id && o.start_ms<e.end_ms && o.end_ms>e.start_ms) || null;
+}
 
 // ---- saved views: name + recall a filter combo (e.g. "Weekend evenings") ----
 const VIEWS_KEY="apex-podplay-views";
@@ -650,7 +670,7 @@ function boot(payload){
     const ev={...e, cat:classifyType(e), levelTokens:lv.tokens, isOpen:lv.isOpen,
       isWomen:/ladies|women|girls/i.test(e.name||"") || (e.tags||[]).includes("Women"),
       dk:o.year+"-"+o.month+"-"+o.day, mins:h*60+parseInt(o.minute,10), dow:DOWMAP[o.weekday],
-      start_ms:new Date(e.start).getTime(),
+      start_ms:new Date(e.start).getTime(), end_ms:new Date(e.end).getTime(),
       spotsLeft: cap ? Math.max(0,cap-signed) : null, full: cap ? signed>=cap : false};
     applyRoster(ev, resolve(e.att), resolve(e.wl));   // baked signups + waitlist → id sets + search names
     return ev;
@@ -873,7 +893,7 @@ function monthLabel(){ return new Date(state.month.y, state.month.m-1, 1).toLoca
 
 // ---- render ----
 function render(){
-  syncFriendsUI(); syncFilterBar();
+  syncFriendsUI(); syncFilterBar(); refreshMyRegistered();
   const base = data.filter(passNonType);              // filter once per render
   updateCounts(base);
   curList = base.filter(e=>state.types.has(e.cat));    // shared by month grid, list, and day panel
@@ -888,10 +908,12 @@ function keyActivate(el){
 function evChip(e){
   const b=document.createElement("button");
   const ms0=myStatus(e);
-  b.className="ev cat-"+e.cat+(e.full?(e.spotsLeft===0?" wl":" full"):"")+(ms0?(ms0.t==="in"?" mine":" minewl"):"");
-  b.title=timeLabelFull(e.start)+" · "+e.name;
+  const conflict=conflictEvent(e);
+  b.className="ev cat-"+e.cat+(e.full?(e.spotsLeft===0?" wl":" full"):"")+(ms0?(ms0.t==="in"?" mine":" minewl"):(conflict?" conflict":""));
+  b.title=timeLabelFull(e.start)+" · "+e.name+(conflict?" — you’re already booked for "+conflict.name+" at this time":"");
   const fc=friendCountIn(e), ms=ms0;
-  const mem = ms ? (ms.t==="in"?' <span class="mestar">✓</span>':' <span class="mestar wl">◷</span>') : '';
+  const mem = ms ? (ms.t==="in"?' <span class="mestar">✓</span>':' <span class="mestar wl">◷</span>')
+                 : (conflict?' <span class="cflag" aria-hidden="true">⏱</span>':'');
   b.innerHTML='<span class="et num">'+timeLabel(e.start)+mem+(fc?' <span class="fstar">★'+fc+'</span>':'')+'</span><span class="en">'+e.name+'</span>';
   b.onclick=()=>openSheet(e);
   return b;
@@ -996,7 +1018,8 @@ function renderDayPanel(){
 }
 function rowEl(e){
   const ms0=myStatus(e);
-  const r=document.createElement("div"); r.className="row cat-"+e.cat+(ms0?(ms0.t==="in"?" mine":" minewl"):""); r.onclick=()=>openSheet(e);
+  const conflict=conflictEvent(e);
+  const r=document.createElement("div"); r.className="row cat-"+e.cat+(ms0?(ms0.t==="in"?" mine":" minewl"):(conflict?" conflict":"")); r.onclick=()=>openSheet(e);
   const pct=pctFull(e);
   // your own ✓/◷ badge already says what matters — a red "Waitlist" next to "You're in" reads as a conflict
   const spots = (ms0 || e.spotsLeft===null) ? "" :
@@ -1008,15 +1031,17 @@ function rowEl(e){
   const ms=ms0;
   const mbadge = ms ? (ms.t==="in" ? '<span class="mebadge">✓ You’re in</span>'
                                    : '<span class="mebadge wl">◷ Waitlist'+(ms.pos?" #"+ms.pos:"")+'</span>') : "";
+  const cbadge = conflict ? '<span class="cbadge" title="You’re already booked for '+esc(conflict.name)+' at this time">⏱ Booked: '+esc(conflict.name)+'</span>' : "";
   r.innerHTML=
     '<div class="rtime num">'+timeLabelFull(e.start)+'<span>'+timeLabelFull(e.end)+'</span></div>'+
     '<div><div class="rname">'+e.name+'</div><div class="rmeta">'+
       '<span class="badge b-'+e.cat+'">'+CATS[e.cat].label+'</span>'+
-      '<span>DUPR '+ratingText(e)+'</span>'+mbadge+fbadge+'</div></div>'+
+      '<span>DUPR '+ratingText(e)+'</span>'+mbadge+fbadge+cbadge+'</div></div>'+
     '<div class="rright">'+price+spots+'</div>';
   let lbl=e.name+", "+timeLabelFull(e.start)+", "+CATS[e.cat].label+", "+availText(e);
   if(ms) lbl+=ms.t==="in"?", you’re registered":", you’re on the waitlist";
   if(fc) lbl+=", "+fc+" friend"+(fc===1?"":"s")+" going";
+  if(conflict) lbl+=", you’re already booked for "+conflict.name+" at this time";
   r.setAttribute("aria-label", lbl);
   keyActivate(r);
   return r;
@@ -1133,12 +1158,17 @@ function openSheet(e){
   const price = (e.regular&&e.regular>0)
     ? '$'+e.regular.toFixed(2).replace(/\.00$/,"")+' drop-in'+(e.member?' <span class="hint">· $'+e.member.toFixed(2).replace(/\.00$/,"")+' member</span>':'')
     : 'Free';
+  const conflict=conflictEvent(e);
+  const conflictNote = conflict
+    ? '<div class="conflictnote">⏱ <span>You’re already booked for <b>'+esc(conflict.name)+'</b> ('+timeLabelFull(conflict.start)+'–'+timeLabelFull(conflict.end)+') at this same time.</span></div>'
+    : '';
   sheet.innerHTML=
     '<div class="top">'+
       '<div class="cat" style="color:'+CATS[e.cat].color+'">'+CATS[e.cat].label+'</div>'+
       '<h3 id="sh-title">'+e.name+'</h3>'+
       '<div class="when num">'+dateStr+' · '+timeLabelFull(e.start)+' – '+timeLabelFull(e.end)+'</div>'+
     '</div>'+
+    conflictNote+
     '<div class="body">'+
       drow("Skill","DUPR "+ratingText(e)+' <span class="hint">· Doubles</span>')+
       drow("Price", price)+
