@@ -1193,7 +1193,7 @@ function openSheet(e){
     '</div>'+
     conflictNote+
     '<div class="body">'+
-      drow("Skill","DUPR "+ratingText(e)+' <span class="hint">· Doubles</span>')+
+      drow("Skill",(ratingText(e)==="Open"?"Open":"Level "+ratingText(e))+' <span class="hint">· Doubles</span>')+
       drow("Price", price)+
       drow("Availability", '<div id="availWrap"><span id="availVal">'+availText(e)+'</span>'+meterHtml(e)+'</div>')+
     '</div>'+
