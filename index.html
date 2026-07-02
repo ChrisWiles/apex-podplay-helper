@@ -58,8 +58,9 @@
   .controls-in{max-width:1200px;margin:0 auto;padding:11px 20px;display:flex;flex-direction:column;gap:11px}
   .crow{display:flex;flex-wrap:wrap;gap:11px 16px;align-items:center}
   .crow2{border-top:1px solid var(--hair-2);padding-top:11px}
-  /* mobile filter collapse: hidden on desktop (filters always shown) */
+  /* mobile filter modal: hidden on desktop (filters always shown inline, no modal) */
   .filttoggle{display:none}
+  .filtfoot{display:none}
   .fcount:empty{display:none}
   .chips{display:flex;flex-wrap:wrap;gap:7px}
   .chip{border:1px solid var(--hair);background:var(--card);color:var(--ink-soft);
@@ -338,8 +339,9 @@
     .range input::-moz-range-thumb{width:24px;height:24px}
     /* 16px inputs so iOS Safari doesn't auto-zoom on focus */
     .search,.viewname,.me-search{font-size:16px}
-    /* collapsible filters: slim bar (Filters + view) stays; the rest folds away */
-    body.filters-open header.hero{display:none}   /* expanded panel gets the whole screen */
+    /* mobile filters open as a full-screen modal, not an inline reveal panel */
+    body.filters-open header.hero{display:none}
+    body.filters-open{overflow:hidden}   /* the modal owns scrolling; keep the page behind it still */
     .controls-in{gap:0}
     .crow-top{flex-wrap:nowrap}
     .crow-top .spacer{flex:1 1 0}
@@ -347,9 +349,21 @@
       color:var(--ink);background:var(--card);border:1px solid var(--hair);border-radius:9px;padding:9px 15px;cursor:pointer}
     .filttoggle .fcount{background:var(--brand);color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px;min-width:18px;text-align:center}
     .filttoggle .chev{width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-2px) rotate(45deg);transition:transform .18s}
-    .controls.open .filttoggle .chev{transform:translateY(1px) rotate(-135deg)}
+    .filttoggle .fclose{display:none;font-size:22px;line-height:.6;font-weight:400}
     .filterbody{display:none}
-    .controls.open .filterbody{display:block;max-height:66vh;overflow-y:auto;padding-top:11px}
+
+    body.filters-open .controls{position:fixed;inset:0;z-index:200;margin:0;background:var(--paper);
+      display:flex;flex-direction:column;backdrop-filter:none;animation:modalIn .16s ease}
+    @keyframes modalIn{from{opacity:0}to{opacity:1}}
+    @media(prefers-reduced-motion:reduce){body.filters-open .controls{animation:none}}
+    body.filters-open .controls-in{flex:1;min-height:0;max-width:none;margin:0;padding:0;display:flex;flex-direction:column}
+    body.filters-open .crow-top{flex:none;padding:16px;border-bottom:1px solid var(--hair);background:var(--card)}
+    body.filters-open .filttoggle{border:0;background:none;padding:6px 0;font-size:17px}
+    body.filters-open .filttoggle .chev{display:none}
+    body.filters-open .filttoggle .fclose{display:inline}
+    body.filters-open .seg{flex:none}
+    .controls.open .filterbody{display:block;flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+      padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
     .controls.open .filterbody .crow2:first-child{border-top:0;padding-top:0}
     /* stack cleanly on mobile: no flex spacers pushing items apart; labels sit above full-width controls */
     .filterbody .spacer{display:none}
@@ -358,6 +372,10 @@
     .filterbody .search{width:100%;max-width:none}
     .filterbody .range{width:100%}
     .filterbody .time-label{min-width:0}
+
+    body.filters-open .filtfoot{display:block;flex:none;padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+      border-top:1px solid var(--hair);background:var(--card)}
+    .filtfoot .book{width:100%}
   }
 </style>
 </head>
@@ -382,7 +400,7 @@
   <div class="controls">
     <div class="controls-in">
       <div class="crow crow-top">
-        <button class="filttoggle" id="filtToggle" type="button" aria-controls="filterBody" aria-expanded="false"><span class="chev" aria-hidden="true"></span>Filters<span class="fcount" id="filtCount"></span></button>
+        <button class="filttoggle" id="filtToggle" type="button" aria-controls="filterBody" aria-expanded="false"><span class="chev" aria-hidden="true"></span>Filters<span class="fcount" id="filtCount"></span><span class="fclose" aria-hidden="true">&times;</span></button>
         <div class="spacer"></div>
         <div class="seg" role="group" aria-label="View">
           <button id="v-month" aria-pressed="true">Month</button>
@@ -435,6 +453,9 @@
           <button class="reset" id="manageFriends" type="button">You &amp; friends</button>
           <button class="reset" id="reset" type="button">Reset filters</button>
         </div>
+      </div>
+      <div class="filtfoot" id="filtFoot">
+        <button class="book" id="filtDone" type="button">Show sessions</button>
       </div>
     </div>
   </div>
@@ -532,7 +553,7 @@ function meterHtml(e){
 
 // ---- module state, filled by boot() ----
 let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null, PEOPLE=[], curList=[];
-let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn,womenSeg,controlsEl,filtToggle,filtCount,views;
+let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn,womenSeg,controlsEl,filtToggle,filtCount,filtDoneBtn,views;
 
 // ---- friends (per-device, keyed on stable PodPlay profile id) ----
 const FRIENDS_KEY="apex-podplay-friends";
@@ -794,6 +815,7 @@ function cacheEls(){
   friendsOnlyBtn=document.getElementById("friendsOnly"); manageFriendsBtn=document.getElementById("manageFriends");
   mineOnlyBtn=document.getElementById("mineOnly");
   controlsEl=document.querySelector(".controls"); filtToggle=document.getElementById("filtToggle"); filtCount=document.getElementById("filtCount");
+  filtDoneBtn=document.getElementById("filtDone");
   views=document.getElementById("views");
 }
 function syncFriendsUI(){
@@ -897,6 +919,7 @@ function render(){
   const base = data.filter(passNonType);              // filter once per render
   updateCounts(base);
   curList = base.filter(e=>state.types.has(e.cat));    // shared by month grid, list, and day panel
+  if(filtDoneBtn) filtDoneBtn.textContent = curList.length ? "Show "+curList.length+" session"+(curList.length===1?"":"s") : "Show sessions (none match)";
   if(state.view==="month") renderMonth(); else renderList();
 }
 
@@ -1230,12 +1253,12 @@ function wire(){
   friendsOnlyBtn.onclick=()=>{ state.friendsOnly=!state.friendsOnly; friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false"); saveState(); render(); };
   mineOnlyBtn.onclick=()=>{ if(!me){ openPeople(); return; } state.mineOnly=!state.mineOnly; mineOnlyBtn.setAttribute("aria-pressed", state.mineOnly?"true":"false"); saveState(); render(); };
   manageFriendsBtn.onclick=()=>openPeople();
-  filtToggle.onclick=()=>{ const open=controlsEl.classList.toggle("open"); filtToggle.setAttribute("aria-expanded", open?"true":"false");
-    document.body.classList.toggle("filters-open", open);   // mobile: hero hides so the panel gets the screen
-    if(open) window.scrollTo(0,0); };
+  filtToggle.onclick=()=>setFiltersOpen(!controlsEl.classList.contains("open"));
+  filtDoneBtn.onclick=()=>setFiltersOpen(false);
   syncFriendsUI();
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
   document.addEventListener("keydown",ev=>{
+    if(ev.key==="Escape" && document.body.classList.contains("filters-open")){ setFiltersOpen(false); return; }
     if(!scrim.classList.contains("open")) return;
     if(ev.key==="Escape"){ closeSheet(); return; }
     if(ev.key==="Tab"){   // trap focus inside the dialog
@@ -1246,7 +1269,14 @@ function wire(){
       else if(!ev.shiftKey && document.activeElement===last){ ev.preventDefault(); first.focus(); }
     }
   });
-  MQ.addEventListener("change",()=>{ selDays=new Set(); defaultedMonth=null; render(); });   // re-render when crossing the mobile breakpoint
+  MQ.addEventListener("change",()=>{ selDays=new Set(); defaultedMonth=null; setFiltersOpen(false); render(); });   // re-render when crossing the mobile breakpoint; the modal is mobile-only
+}
+// mobile: filters open as a full-screen modal that covers the hero + content
+function setFiltersOpen(open){
+  controlsEl.classList.toggle("open", open);
+  filtToggle.setAttribute("aria-expanded", open?"true":"false");
+  document.body.classList.toggle("filters-open", open);
+  if(open) window.scrollTo(0,0);
 }
 function resetFilters(){
   try{ localStorage.removeItem(LS_KEY); }catch(e){}
