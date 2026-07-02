@@ -1059,7 +1059,7 @@ function rowEl(e){
     '<div class="rtime num">'+timeLabelFull(e.start)+'<span>'+timeLabelFull(e.end)+'</span></div>'+
     '<div><div class="rname">'+e.name+'</div><div class="rmeta">'+
       '<span class="badge b-'+e.cat+'">'+CATS[e.cat].label+'</span>'+
-      '<span>DUPR '+ratingText(e)+'</span>'+mbadge+fbadge+cbadge+'</div></div>'+
+      mbadge+fbadge+cbadge+'</div></div>'+
     '<div class="rright">'+price+spots+'</div>';
   let lbl=e.name+", "+timeLabelFull(e.start)+", "+CATS[e.cat].label+", "+availText(e);
   if(ms) lbl+=ms.t==="in"?", you’re registered":", you’re on the waitlist";
