@@ -246,6 +246,8 @@
   .book{flex:1;background:var(--brand);color:#fff;text-decoration:none;text-align:center;font-weight:700;font-size:15px;
     padding:12px 16px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s}
   .book:hover{background:#1c47b4}
+  .book:disabled{background:var(--hair-2);color:var(--muted);cursor:not-allowed;box-shadow:none}
+  .book:disabled:hover{background:var(--hair-2)}
   .close{width:40px;height:40px;border-radius:10px;border:1px solid var(--hair);background:var(--card);cursor:pointer;
     font-size:20px;color:var(--muted);flex:none}
   .close:hover{border-color:var(--full);color:var(--full)}
@@ -276,6 +278,13 @@
   .conflictnote{margin:0 22px 14px;padding:10px 12px;border-radius:10px;background:var(--conflict-b);
     display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.4;color:var(--ink-soft)}
   .conflictnote b{color:var(--ink)}
+  /* once a session's time has passed, dim it and swap availability/booking for a plain "it's over" note */
+  .ev.past{opacity:.5}
+  .row.past{opacity:.68}
+  .spots.past{color:var(--muted);font-style:italic}
+  .pastAvail{color:var(--muted);font-weight:600}
+  .pastnote{margin:0 22px 14px;padding:10px 12px;border-radius:10px;background:var(--hair-2);
+    display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.4;color:var(--ink-soft)}
   .roster li.isme{background:#e7f6ec}
   .roster .metag{margin-left:auto;font-size:11px;font-weight:700;color:var(--mine);text-transform:uppercase;letter-spacing:.06em}
   .roster .rhd.wl{color:var(--c-clinic)}
@@ -538,6 +547,12 @@ function ratingText(e){ if(e.minRating==null && e.maxRating==null) return "Open"
 // capacity is courts × 6, so raw "spots left" hides how full a session really is:
 // 6 left of 12 is a half-empty court; 6 left of 64 is nearly packed. Show % full.
 function pctFull(e){ return e.capacity ? Math.round(((e.signedUp||0)/e.capacity)*100) : null; }
+// once a session's time has passed, spots-left/booking are moot — say so instead
+function pastLabel(e){
+  const now=Date.now();
+  if(now<e.start_ms) return null;
+  return now<e.end_ms ? "In progress" : "Session ended";
+}
 function availText(e){
   if(e.spotsLeft===null) return "Open registration";
   if(e.spotsLeft===0) return e.full?"Full — join the waitlist":"Full";
@@ -578,7 +593,7 @@ function myStatus(e){
 // something you're actually confirmed for (a waitlist spot isn't a real conflict yet).
 // recomputed once per render() — see there — not per event, since it's the same for every event.
 let myRegistered=[];
-function refreshMyRegistered(){ myRegistered = me ? data.filter(e=>{ const s=myStatus(e); return s&&s.t==="in"; }) : []; }
+function refreshMyRegistered(){ myRegistered = me ? data.filter(e=>{ const s=myStatus(e); return s&&s.t==="in" && !pastLabel(e); }) : []; }   // a concluded booking can't conflict with anything anymore
 function conflictEvent(e){
   if(!myRegistered.length) return null;
   const s=myStatus(e); if(s && s.t==="in") return null;   // this *is* the booked one — not a conflict with itself
@@ -931,9 +946,10 @@ function keyActivate(el){
 function evChip(e){
   const b=document.createElement("button");
   const ms0=myStatus(e);
-  const conflict=conflictEvent(e);
-  b.className="ev cat-"+e.cat+(e.full?(e.spotsLeft===0?" wl":" full"):"")+(ms0?(ms0.t==="in"?" mine":" minewl"):(conflict?" conflict":""));
-  b.title=timeLabelFull(e.start)+" · "+e.name+(conflict?" — you’re already booked for "+conflict.name+" at this time":"");
+  const past=pastLabel(e);
+  const conflict=past?null:conflictEvent(e);   // a session that's over can't clash with anything anymore
+  b.className="ev cat-"+e.cat+(e.full?(e.spotsLeft===0?" wl":" full"):"")+(ms0?(ms0.t==="in"?" mine":" minewl"):(conflict?" conflict":""))+(past?" past":"");
+  b.title=timeLabelFull(e.start)+" · "+e.name+(conflict?" — you’re already booked for "+conflict.name+" at this time":"")+(past?" — "+past:"");
   const fc=friendCountIn(e), ms=ms0;
   const mem = ms ? (ms.t==="in"?' <span class="mestar">✓</span>':' <span class="mestar wl">◷</span>')
                  : (conflict?' <span class="cflag" aria-hidden="true">⏱</span>':'');
@@ -1041,11 +1057,13 @@ function renderDayPanel(){
 }
 function rowEl(e){
   const ms0=myStatus(e);
-  const conflict=conflictEvent(e);
-  const r=document.createElement("div"); r.className="row cat-"+e.cat+(ms0?(ms0.t==="in"?" mine":" minewl"):(conflict?" conflict":"")); r.onclick=()=>openSheet(e);
+  const past=pastLabel(e);
+  const conflict=past?null:conflictEvent(e);   // a session that's over can't clash with anything anymore
+  const r=document.createElement("div"); r.className="row cat-"+e.cat+(ms0?(ms0.t==="in"?" mine":" minewl"):(conflict?" conflict":""))+(past?" past":""); r.onclick=()=>openSheet(e);
   const pct=pctFull(e);
   // your own ✓/◷ badge already says what matters — a red "Waitlist" next to "You're in" reads as a conflict
-  const spots = (ms0 || e.spotsLeft===null) ? "" :
+  const spots = past ? '<span class="spots past">'+past+'</span>' :
+    (ms0 || e.spotsLeft===null) ? "" :
     (e.spotsLeft===0 ? '<span class="spots none">'+(e.full?"Waitlist":"Full")+'</span>'
                      : '<span class="spots'+(pct>=80||e.spotsLeft<=2?" low":"")+'">'+e.spotsLeft+' spot'+(e.spotsLeft===1?"":"s")+' left'+(e.signedUp?' · '+pct+'% full':'')+'</span>');
   const price = (e.regular && e.regular>0) ? '<span class="price num">$'+e.regular.toFixed(2).replace(/\.00$/,"")+'</span>' : '<span class="price">Free</span>';
@@ -1061,7 +1079,7 @@ function rowEl(e){
       '<span class="badge b-'+e.cat+'">'+CATS[e.cat].label+'</span>'+
       mbadge+fbadge+cbadge+'</div></div>'+
     '<div class="rright">'+price+spots+'</div>';
-  let lbl=e.name+", "+timeLabelFull(e.start)+", "+CATS[e.cat].label+", "+availText(e);
+  let lbl=e.name+", "+timeLabelFull(e.start)+", "+CATS[e.cat].label+", "+(past||availText(e));
   if(ms) lbl+=ms.t==="in"?", you’re registered":", you’re on the waitlist";
   if(fc) lbl+=", "+fc+" friend"+(fc===1?"":"s")+" going";
   if(conflict) lbl+=", you’re already booked for "+conflict.name+" at this time";
@@ -1181,34 +1199,43 @@ function openSheet(e){
   const price = (e.regular&&e.regular>0)
     ? '$'+e.regular.toFixed(2).replace(/\.00$/,"")+' drop-in'+(e.member?' <span class="hint">· $'+e.member.toFixed(2).replace(/\.00$/,"")+' member</span>':'')
     : 'Free';
-  const conflict=conflictEvent(e);
+  const past=pastLabel(e);
+  const conflict=past?null:conflictEvent(e);   // a session that's over can't clash with anything anymore
   const conflictNote = conflict
     ? '<div class="conflictnote">⏱ <span>You’re already booked for <b>'+esc(conflict.name)+'</b> ('+timeLabelFull(conflict.start)+'–'+timeLabelFull(conflict.end)+') at this same time.</span></div>'
     : '';
+  const pastNote = past
+    ? '<div class="pastnote">🕓 <span>'+past+' — booking has closed for this session.</span></div>'
+    : '';
+  const bookHtml = past
+    ? '<button class="book" type="button" disabled aria-disabled="true">'+past+' · Booking closed</button>'
+    : '<a class="book" href="'+BOOK(e.id)+'" target="_blank" rel="noopener">Book on PodPlay →</a>';
+  const noteHtml = past
+    ? '<div class="note">This session’s time has passed, so PodPlay booking is no longer available.</div>'
+    : '<div class="note">Opens the session on apexpbclubs.podplay.app · a PodPlay account is required to reserve.</div>';
   sheet.innerHTML=
     '<div class="top">'+
       '<div class="cat" style="color:'+CATS[e.cat].color+'">'+CATS[e.cat].label+'</div>'+
       '<h3 id="sh-title">'+e.name+'</h3>'+
       '<div class="when num">'+dateStr+' · '+timeLabelFull(e.start)+' – '+timeLabelFull(e.end)+'</div>'+
     '</div>'+
-    conflictNote+
+    pastNote+conflictNote+
     '<div class="body">'+
       drow("Skill",(ratingText(e)==="Open"?"Open":"Level "+ratingText(e))+' <span class="hint">· Doubles</span>')+
       drow("Price", price)+
-      drow("Availability", '<div id="availWrap"><span id="availVal">'+availText(e)+'</span>'+meterHtml(e)+'</div>')+
+      drow("Availability", past ? '<span class="pastAvail">'+past+'</span>' : '<div id="availWrap"><span id="availVal">'+availText(e)+'</span>'+meterHtml(e)+'</div>')+
     '</div>'+
     rosterHtml(e)+
-    '<div class="foot">'+
-      '<a class="book" href="'+BOOK(e.id)+'" target="_blank" rel="noopener">Book on PodPlay →</a>'+
+    '<div class="foot">'+bookHtml+
       '<button class="close" id="x" aria-label="Close">×</button>'+
     '</div>'+
-    '<div class="note">Opens the session on apexpbclubs.podplay.app · a PodPlay account is required to reserve.</div>';
+    noteHtml;
   scrim.classList.add("open");
   wireStars();
   document.getElementById("x").onclick=closeSheet;
   document.getElementById("x").focus();
-  // live-refresh this session's roster so your status / who's going is exact-now
-  if(e.signedUp && !e._live){
+  // live-refresh this session's roster so your status / who's going is exact-now (skip once it's over — nothing left to refresh)
+  if(e.signedUp && !e._live && !past){
     const hd=sheet.querySelector("#rosterBox .rhd");
     if(hd) hd.insertAdjacentHTML("beforeend",' <span class="livehint">updating…</span>');
     refreshRoster(e).then(ok=>{
