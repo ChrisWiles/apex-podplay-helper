@@ -238,7 +238,7 @@
   .drow .v{color:var(--ink);font-weight:500}
   .drow .v .hint{color:var(--muted);font-weight:500}
   .meter{height:6px;border-radius:3px;background:var(--hair-2);margin-top:8px;overflow:hidden;max-width:240px}
-  .meter span{display:block;height:100%;border-radius:3px;background:var(--c-social)}
+  .meter span{display:block;height:100%;border-radius:3px;background:var(--avail)}
   .meter.hot span{background:var(--c-clinic)}
   .meter.full span{background:var(--full)}
   .courtsnote{font-size:12px;color:var(--muted);margin-top:5px}
@@ -1206,6 +1206,37 @@ function openPeople(onboarding){
   }
   document.getElementById("x").focus();
 }
+// your relationship to THIS session, stated plainly — don't make people scroll the roster to find their own name
+function statusNoteHtml(ms){
+  if(!ms) return '';
+  return ms.t==="in"
+    ? '<div class="statusnote mine">✓ <span>You&rsquo;re <b>registered</b> for this session.</span></div>'
+    : '<div class="statusnote wl">◷ <span>You&rsquo;re on the <b>waitlist</b>'+(ms.pos?' (#'+ms.pos+')':'')+' for this session.</span></div>';
+}
+// re-checks this session's live roster/status and patches the open sheet in place.
+// force=true skips the "already refreshed once" guard — used when the tab regains focus
+// after the visitor followed the Book link, since that's exactly when status may have changed.
+function liveRefreshSheet(e, force){
+  if(!e.signedUp || pastLabel(e)) return;
+  if(e._live && !force) return;
+  const hd=sheet.querySelector("#rosterBox .rhd");
+  if(hd) hd.insertAdjacentHTML("beforeend",' <span class="livehint">updating…</span>');
+  refreshRoster(e).then(ok=>{
+    if(sheetEvent!==e || !scrim.classList.contains("open")) return;
+    if(ok){
+      const box=sheet.querySelector("#rosterBox");
+      if(box){ box.outerHTML=rosterHtml(e); wireStars(); }   // fresh roster markup drops the hint too
+      const av=sheet.querySelector("#availWrap");   // live spots/waitlist + fullness meter
+      if(av) av.innerHTML='<span id="availVal">'+availText(e)+'</span>'+meterHtml(e);
+      const wrap=sheet.querySelector("#statusNoteWrap");   // e.g. you just got off the waitlist and into the session
+      if(wrap) wrap.innerHTML=statusNoteHtml(myStatus(e));
+      render();   // refresh badges/counts behind the modal
+    } else {
+      const h=sheet.querySelector(".livehint"); if(h) h.remove();   // refresh failed → baked data stands
+    }
+  });
+}
+let awaitingReturnFor=null;   // event whose Book link was last clicked, armed until the tab regains focus
 function openSheet(e){
   if(!scrim.classList.contains("open")) lastFocus=document.activeElement;
   sheetEvent=e;
@@ -1216,13 +1247,7 @@ function openSheet(e){
     : 'Free';
   const past=pastLabel(e);
   const conflict=past?null:conflictEvent(e);   // a session that's over can't clash with anything anymore
-  const ms0=myStatus(e);
-  // your relationship to THIS session, stated plainly — don't make people scroll the roster to find their own name
-  const statusNote = ms0
-    ? (ms0.t==="in"
-        ? '<div class="statusnote mine">✓ <span>You&rsquo;re <b>registered</b> for this session.</span></div>'
-        : '<div class="statusnote wl">◷ <span>You&rsquo;re on the <b>waitlist</b>'+(ms0.pos?' (#'+ms0.pos+')':'')+' for this session.</span></div>')
-    : '';
+  const statusNote = '<div id="statusNoteWrap">'+statusNoteHtml(myStatus(e))+'</div>';
   const conflictNote = conflict
     ? '<div class="conflictnote">⏱ <span>You’re already booked for <b>'+esc(conflict.name)+'</b> ('+timeLabelFull(conflict.start)+'–'+timeLabelFull(conflict.end)+') at this same time.</span></div>'
     : '';
@@ -1231,7 +1256,7 @@ function openSheet(e){
     : '';
   const bookHtml = past
     ? '<button class="book" type="button" disabled aria-disabled="true">'+past+' · Booking closed</button>'
-    : '<a class="book" href="'+BOOK(e.id)+'" target="_blank" rel="noopener">Book on PodPlay →</a>';
+    : '<a class="book" id="bookLink" href="'+BOOK(e.id)+'" target="_blank" rel="noopener">Book on PodPlay →</a>';
   const noteHtml = past
     ? '<div class="note">This session’s time has passed, so PodPlay booking is no longer available.</div>'
     : '<div class="note">Opens the session on apexpbclubs.podplay.app · a PodPlay account is required to reserve.</div>';
@@ -1256,23 +1281,10 @@ function openSheet(e){
   wireStars();
   document.getElementById("x").onclick=closeSheet;
   document.getElementById("x").focus();
+  const bookLink=document.getElementById("bookLink");
+  if(bookLink) bookLink.onclick=()=>{ awaitingReturnFor=e; };
   // live-refresh this session's roster so your status / who's going is exact-now (skip once it's over — nothing left to refresh)
-  if(e.signedUp && !e._live && !past){
-    const hd=sheet.querySelector("#rosterBox .rhd");
-    if(hd) hd.insertAdjacentHTML("beforeend",' <span class="livehint">updating…</span>');
-    refreshRoster(e).then(ok=>{
-      if(sheetEvent!==e || !scrim.classList.contains("open")) return;
-      if(ok){
-        const box=sheet.querySelector("#rosterBox");
-        if(box){ box.outerHTML=rosterHtml(e); wireStars(); }   // fresh roster markup drops the hint too
-        const av=sheet.querySelector("#availWrap");   // live spots/waitlist + fullness meter
-        if(av) av.innerHTML='<span id="availVal">'+availText(e)+'</span>'+meterHtml(e);
-        render();   // refresh badges/counts behind the modal
-      } else {
-        const h=sheet.querySelector(".livehint"); if(h) h.remove();   // refresh failed → baked data stands
-      }
-    });
-  }
+  liveRefreshSheet(e);
 }
 function drow(k,v){ return '<div class="drow"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>'; }
 function closeSheet(){ scrim.classList.remove("open"); sheetEvent=null; if(lastFocus)lastFocus.focus(); }
@@ -1307,6 +1319,13 @@ function wire(){
   filtDoneBtn.onclick=()=>setFiltersOpen(false);
   syncFriendsUI();
   scrim.onclick=ev=>{ if(ev.target===scrim) closeSheet(); };
+  // came back from the PodPlay tab after tapping Book → re-check this session right away
+  document.addEventListener("visibilitychange",()=>{
+    if(document.visibilityState==="visible" && awaitingReturnFor && scrim.classList.contains("open") && sheetEvent===awaitingReturnFor){
+      const ev2=awaitingReturnFor; awaitingReturnFor=null;
+      liveRefreshSheet(ev2, true);
+    }
+  });
   document.addEventListener("keydown",ev=>{
     if(ev.key==="Escape" && document.body.classList.contains("filters-open")){ setFiltersOpen(false); return; }
     if(!scrim.classList.contains("open")) return;
