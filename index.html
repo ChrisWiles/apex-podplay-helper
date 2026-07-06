@@ -14,9 +14,9 @@
     --ink:#101725; --ink-soft:#26324a; --muted:#5b6b82; --muted-2:#8a97ab;
     --paper:#f4f6fa; --card:#ffffff; --hair:#e3e8f1; --hair-2:#eef1f7;
     --brand:#2457d6; --lime:#c7e63f;
-    --c-open:#2563c9; --c-clinic:#c6741b; --c-social:#0e8c7f; --c-special:#6d3be0;
-    --c-open-b:#eaf1fd; --c-clinic-b:#fbf0e2; --c-social-b:#e6f5f2; --c-special-b:#f0ebfc;
-    --full:#b03636; --star:#e0a400; --mine:#178a3d; --conflict:#55606e; --conflict-b:#eef1f5;
+    --c-open:#2563c9; --c-clinic:#c6741b; --c-social:#c2255c; --c-special:#6d3be0;
+    --c-open-b:#eaf1fd; --c-clinic-b:#fbf0e2; --c-social-b:#fbe7ee; --c-special-b:#f0ebfc;
+    --full:#b03636; --star:#e0a400; --mine:#178a3d; --avail:#0e8c7f; --conflict:#55606e; --conflict-b:#eef1f5;
     --shadow:0 1px 2px rgba(16,23,37,.06),0 8px 24px rgba(16,23,37,.06);
     --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
@@ -202,7 +202,7 @@
   .b-openplay{background:var(--c-open-b);color:var(--c-open)} .b-clinic{background:var(--c-clinic-b);color:var(--c-clinic)}
   .b-social{background:var(--c-social-b);color:var(--c-social)} .b-special{background:var(--c-special-b);color:var(--c-special)}
   .price{font-weight:700;font-variant-numeric:tabular-nums;font-size:14px}
-  .spots{font-size:12px;font-weight:600;color:var(--c-social)}
+  .spots{font-size:12px;font-weight:600;color:var(--avail)}
   .spots.low{color:var(--c-clinic)} .spots.none{color:var(--full)}
   .empty{padding:60px 20px;text-align:center;color:var(--muted)}
   .empty b{color:var(--ink);font-weight:700;display:block;font-size:17px;margin-bottom:6px}
@@ -285,6 +285,13 @@
   .pastAvail{color:var(--muted);font-weight:600}
   .pastnote{margin:0 22px 14px;padding:10px 12px;border-radius:10px;background:var(--hair-2);
     display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.4;color:var(--ink-soft)}
+  /* your relationship to this session, stated up front — not something to hunt for in the roster */
+  .statusnote{margin:0 22px 14px;padding:10px 12px;border-radius:10px;
+    display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.4;color:var(--ink-soft)}
+  .statusnote.mine{background:#eaf7ee}
+  .statusnote.mine b{color:var(--mine)}
+  .statusnote.wl{background:#fbf3e3}
+  .statusnote.wl b{color:var(--c-clinic)}
   .roster li.isme{background:#e7f6ec}
   .roster .metag{margin-left:auto;font-size:11px;font-weight:700;color:var(--mine);text-transform:uppercase;letter-spacing:.06em}
   .roster .rhd.wl{color:var(--c-clinic)}
@@ -1209,6 +1216,13 @@ function openSheet(e){
     : 'Free';
   const past=pastLabel(e);
   const conflict=past?null:conflictEvent(e);   // a session that's over can't clash with anything anymore
+  const ms0=myStatus(e);
+  // your relationship to THIS session, stated plainly — don't make people scroll the roster to find their own name
+  const statusNote = ms0
+    ? (ms0.t==="in"
+        ? '<div class="statusnote mine">✓ <span>You&rsquo;re <b>registered</b> for this session.</span></div>'
+        : '<div class="statusnote wl">◷ <span>You&rsquo;re on the <b>waitlist</b>'+(ms0.pos?' (#'+ms0.pos+')':'')+' for this session.</span></div>')
+    : '';
   const conflictNote = conflict
     ? '<div class="conflictnote">⏱ <span>You’re already booked for <b>'+esc(conflict.name)+'</b> ('+timeLabelFull(conflict.start)+'–'+timeLabelFull(conflict.end)+') at this same time.</span></div>'
     : '';
@@ -1227,7 +1241,7 @@ function openSheet(e){
       '<h3 id="sh-title">'+e.name+'</h3>'+
       '<div class="when num">'+dateStr+' · '+timeLabelFull(e.start)+' – '+timeLabelFull(e.end)+'</div>'+
     '</div>'+
-    pastNote+conflictNote+
+    statusNote+pastNote+conflictNote+
     '<div class="body">'+
       drow("Skill",(ratingText(e)==="Open"?"Open":"Level "+ratingText(e))+' <span class="hint">· Doubles</span>')+
       drow("Price", price)+
