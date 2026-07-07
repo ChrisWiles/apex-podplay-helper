@@ -629,7 +629,9 @@ function saveMyWl(){ try{ localStorage.setItem(WL_KEY, JSON.stringify([...myWl])
 function myStatus(e){
   if(me){
     if(e._attIds && e._attIds.has(me.id)){ if(myWl.delete(e.id)) saveMyWl(); return {t:"in"}; }   // promoted off the waitlist → the mark is stale
-    if(e._wlIds && e._wlIds.has(me.id)) return {t:"wl", pos:(e._wl.findIndex(a=>a.id===me.id)+1)||null};
+    // the live waitlist is viewer-scoped (usually just your own entry), so an index into it
+    // is not your real queue position — only claim a position when the list has more than you
+    if(e._wlIds && e._wlIds.has(me.id)) return {t:"wl", pos:(e._wl.length>1?(e._wl.findIndex(a=>a.id===me.id)+1):null)||null};
   }
   if(myWl.has(e.id)) return {t:"wl", pos:null, manual:true};
   return null;
@@ -755,7 +757,7 @@ async function apiToken(){
   return anonToken();
 }
 const LIVE_SKIP=new Set(["CANCELED","DECLINED","REMOVED","WAITLISTED"]);
-function personOf(rec){ const p=rec.inviteeProfile||rec.profile||rec.invitee||{}; return p.id?{id:p.id,name:[p.firstName,p.lastName].filter(Boolean).join(" ").trim()||p.initials||""}:null; }
+function personOf(rec){ const p=rec.inviteeProfile||rec.userProfile||rec.profile||rec.invitee||{}; return p.id?{id:p.id,name:[p.firstName,p.lastName].filter(Boolean).join(" ").trim()||p.initials||""}:null; }   // waitlist entries link a userProfile, rosters an inviteeProfile
 // fetch this event's current roster + waitlist and update it in place; returns true if data present
 async function refreshRoster(e){
   const tok=await apiToken(); if(!tok) return false;
@@ -770,9 +772,15 @@ async function refreshRoster(e){
       const p=personOf(r); if(p)att.push(p);
     }
     let wl=[];
-    if(e.full){ try{ const w=await (await fetch(`${API_BASE}/events/${e.id}/waitlist?expand=items._links.inviteeProfile&ipp=100`,{headers:hz})).json(); wl=(w.items||[]).map(personOf).filter(Boolean); }catch(x){} }
+    if(e.full){ try{ const w=await (await fetch(`${API_BASE}/events/${e.id}/waitlist?expand=items._links.userProfile&ipp=100`,{headers:hz})).json(); wl=(w.items||[]).map(personOf).filter(Boolean); }catch(x){} }
     if(!wl.length) wl=wlInv;   // /waitlist is position-ordered when it answers; invitations are the fallback
     applyRoster(e, att, wl);
+    // the waitlist is viewer-scoped (each member sees only their own entry), so a logged-in
+    // fetch is authoritative about YOU: sync the durable on-device mark to match.
+    if(auth && me && me.id===auth.uid){
+      const onWl=!!(e._wlIds && e._wlIds.has(me.id));
+      if(onWl!==myWl.has(e.id)){ onWl?myWl.add(e.id):myWl.delete(e.id); saveMyWl(); }
+    }
     // roster is now the source of truth → refresh the counts too, so spots/badges match
     e.signedUp = att.length;
     if(e.capacity){ e.spotsLeft = Math.max(0, e.capacity-att.length); e.full = att.length>=e.capacity; }
@@ -1279,7 +1287,10 @@ function rosterHtml(e){
   if(!e._att && !e._wl) return e.signedUp ? '<div class="roster" id="rosterBox"><div class="rhd">Who’s going</div><div class="unavail">Attendee list isn’t published for this session.</div></div>' : '<div class="roster" id="rosterBox"></div>';
   let h='<div class="roster" id="rosterBox">';
   if(e._att) h+='<div class="rhd">Who’s going · '+e._att.length+'</div><ul>'+sortRoster(e._att).map(personLi).join("")+'</ul>';
-  if(e._wl)  h+='<div class="rhd wl">Waitlist · '+e._wl.length+'</div><ul>'+e._wl.map(personLi).join("")+'</ul>';   // keep waitlist order = position
+  if(e._wl){   // viewer-scoped: when the only visible entry is you, a count would overpromise
+    const onlyMe = e._wl.length===1 && me && e._wl[0].id===me.id;
+    h+='<div class="rhd wl">Waitlist'+(onlyMe?' · you':' · '+e._wl.length)+'</div><ul>'+e._wl.map(personLi).join("")+'</ul>';   // keep waitlist order = position
+  }
   return h+'</div>';
 }
 function wireStars(){
