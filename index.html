@@ -94,7 +94,7 @@
     border:1px solid var(--hair);border-radius:999px;padding:7px 13px;cursor:pointer;display:flex;align-items:center;gap:7px;line-height:1;
     transition:background .15s,border-color .15s,color .15s}
   .toggle .tk{width:8px;height:8px;border-radius:50%;background:var(--muted-2)}
-  .toggle[aria-pressed="true"]{background:var(--c-social);color:#fff;border-color:transparent}
+  .toggle[aria-pressed="true"]{background:var(--avail);color:#fff;border-color:transparent}
   .toggle[aria-pressed="true"] .tk{background:#fff}
   .search:focus-visible,.toggle:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   /* saved views */
@@ -182,9 +182,14 @@
   .list{display:none;flex-direction:column;gap:26px}
   .daygrp{background:var(--card);border:1px solid var(--hair);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
   .dayhd{display:flex;align-items:baseline;gap:12px;padding:14px 18px;border-bottom:1px solid var(--hair-2);background:#fbfcfe}
-  .dayhd .dd{font-size:16px;font-weight:800;letter-spacing:-.01em}
-  .dayhd .dw{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
-  .dayhd .dc{margin-left:auto;font-size:12.5px;color:var(--muted);font-weight:600}
+  .dayhd .dd{font-size:16px;font-weight:800;letter-spacing:-.01em;white-space:nowrap}
+  .dayhd .dw{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+  .dayhd .dc{margin-left:auto;font-size:12.5px;color:var(--muted);font-weight:600;text-align:right}
+  /* day headers become tappable when filters are hiding part of that day */
+  .dayhd.tappable{cursor:pointer}
+  .dayhd.tappable:hover{background:#f2f6fd}
+  .dayhd.tappable:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+  .dayhd .dcx{color:var(--brand);font-weight:700}
   .rows{display:flex;flex-direction:column}
   .row{display:grid;grid-template-columns:132px 1fr auto;gap:16px;align-items:center;padding:13px 18px;
     border-bottom:1px solid var(--hair-2);border-left:4px solid;cursor:pointer}
@@ -263,10 +268,12 @@
   /* "you're signed up" made obvious in tiles/rows without opening */
   .ev.mine{box-shadow:inset 0 0 0 1.5px var(--mine)}
   .ev.minewl{box-shadow:inset 0 0 0 1.5px var(--c-clinic)}
-  .row.mine{background:#eaf7ee}
-  .row.mine:hover{background:#e0f2e6}
-  .row.minewl{background:#fbf3e3}
-  .row.minewl:hover{background:#f6ecd8}
+  /* your own rows go unmistakably green/amber: deeper tint + the status color takes over the edge stripe
+     (pale tints alone read the same as the pale category backgrounds — the type badge still names the type) */
+  .row.mine{background:#d9f2e0;border-left-color:var(--mine);box-shadow:inset 3px 0 0 var(--mine)}
+  .row.mine:hover{background:#cdedd7}
+  .row.minewl{background:#fbedcb;border-left-color:var(--star);box-shadow:inset 3px 0 0 var(--star)}
+  .row.minewl:hover{background:#f8e6b8}
   .daymine{position:absolute;top:4px;right:5px;color:var(--mine);font-size:11px;font-weight:800;line-height:1}
   .daymine.wl{color:var(--c-clinic)}
   /* you can only be on one court at a time — flag sessions that clash with something you're already booked into */
@@ -1044,6 +1051,26 @@ function selectDay(key){
     dayPanel.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion:reduce)").matches?"auto":"smooth",block:"start"});
   }
 }
+// tap a day header to see the whole day, filters bypassed for just that day; tap again to refilter.
+// transient by design — a reload goes back to honoring the filters everywhere.
+let showAllDays=new Set();
+function wireDayHeader(hd, key, shown, total){
+  const dc=hd.querySelector(".dc");
+  const showAll=showAllDays.has(key);
+  if(showAll){
+    dc.innerHTML=total+' session'+(total===1?"":"s")+' · <span class="dcx">showing all — tap to refilter</span>';
+  } else if(total>shown){
+    dc.innerHTML=shown+' of '+total+' session'+(total===1?"":"s")+' · <span class="dcx">tap to show all</span>';
+  } else {
+    dc.textContent=shown+' session'+(shown===1?"":"s");
+    return;   // nothing hidden on this day — header stays inert
+  }
+  hd.classList.add("tappable");
+  hd.setAttribute("aria-pressed", showAll?"true":"false");
+  hd.setAttribute("aria-label", (showAll?"Showing all "+total+" sessions":shown+" of "+total+" sessions shown")+" — tap to "+(showAll?"apply your filters again":"show the whole day"));
+  hd.onclick=()=>{ if(showAllDays.has(key)) showAllDays.delete(key); else showAllDays.add(key); render(); };
+  keyActivate(hd);
+}
 function renderDayPanel(){
   dayPanel.innerHTML="";
   const keys=[...selDays].sort();
@@ -1057,16 +1084,19 @@ function renderDayPanel(){
   dayPanel.appendChild(cap);
   const all=curList;
   keys.forEach(key=>{
-    const evs=all.filter(e=>e.dk===key).sort((a,b)=>a.start_ms-b.start_ms);
+    const matched=all.filter(e=>e.dk===key).sort((a,b)=>a.start_ms-b.start_ms);
+    const whole=data.filter(e=>e.dk===key);            // already start-sorted from boot
+    const evs=showAllDays.has(key)?whole:matched;
     const [Y,M,D]=key.split("-").map(Number); const dObj=new Date(Y,M-1,D);
     const grp=document.createElement("div"); grp.className="daygrp";
     const hd=document.createElement("div"); hd.className="dayhd";
     hd.innerHTML='<span class="dd">'+dObj.toLocaleDateString("en-US",{month:"long",day:"numeric"})+'</span>'+
                  '<span class="dw">'+dObj.toLocaleDateString("en-US",{weekday:"long"})+'</span>'+
-                 '<span class="dc num">'+evs.length+' session'+(evs.length===1?"":"s")+'</span>';
+                 '<span class="dc num"></span>';
+    wireDayHeader(hd, key, matched.length, whole.length);
     grp.appendChild(hd);
     if(evs.length){ const rows=document.createElement("div"); rows.className="rows"; evs.forEach(e=>rows.appendChild(rowEl(e))); grp.appendChild(rows); }
-    else { const em=document.createElement("div"); em.className="paneln"; em.textContent="No sessions match your filters on this day."; grp.appendChild(em); }
+    else { const em=document.createElement("div"); em.className="paneln"; em.textContent=whole.length?"No sessions match your filters on this day — tap the day header to see all "+whole.length+".":"No sessions this day."; grp.appendChild(em); }
     dayPanel.appendChild(grp);
   });
 }
@@ -1111,13 +1141,17 @@ function renderList(){
       : "Turn a filter back on, widen the time range, or reset."); return; }
   emptyEl.hidden=true; listEl.style.display="flex";
   const byDay={}; list.forEach(e=>(byDay[e.dk]=byDay[e.dk]||[]).push(e));
+  const allByDay={}; data.forEach(e=>(allByDay[e.dk]=allByDay[e.dk]||[]).push(e));   // whole day, filters aside
   Object.keys(byDay).sort().forEach(key=>{
-    const evs=byDay[key]; const d=new Date(evs[0].start);
+    const matched=byDay[key], whole=allByDay[key]||matched;
+    const evs=showAllDays.has(key)?whole:matched;
+    const d=new Date(matched[0].start);
     const grp=document.createElement("div"); grp.className="daygrp"; grp.id="d-"+key;
     const hd=document.createElement("div"); hd.className="dayhd";
     hd.innerHTML='<span class="dd">'+d.toLocaleDateString("en-US",{timeZone:TZ,month:"long",day:"numeric"})+'</span>'+
                  '<span class="dw">'+d.toLocaleDateString("en-US",{timeZone:TZ,weekday:"long"})+'</span>'+
-                 '<span class="dc num">'+evs.length+' session'+(evs.length===1?"":"s")+'</span>';
+                 '<span class="dc num"></span>';
+    wireDayHeader(hd, key, matched.length, whole.length);
     grp.appendChild(hd);
     const rows=document.createElement("div"); rows.className="rows";
     evs.forEach(e=>rows.appendChild(rowEl(e)));
