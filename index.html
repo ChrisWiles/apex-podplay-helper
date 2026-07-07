@@ -803,6 +803,32 @@ function applyRoster(e, att, wl){
   e._att=att.length?att:null; e._attIds=att.length?new Set(att.map(a=>a.id)):null; e._attNames=att.length?att.map(a=>a.name.toLowerCase()):null;
   e._wl=wl.length?wl:null; e._wlIds=wl.length?new Set(wl.map(a=>a.id)):null;
 }
+// otherwise a waitlist mark only ever appears once you happen to open that exact session's
+// card — the calendar/list views have no live data until then. So once logged in, sweep
+// every full near-term session once for a viewer-scoped waitlist entry (a lean waitlist-only
+// fetch, not the heavier full refreshRoster, since that's the one thing missing here).
+let wlSwept=false;
+async function sweepMyWaitlists(){
+  if(!auth || !me || me.id!==auth.uid || wlSwept) return;
+  const targets=data.filter(e=>e.full && !pastLabel(e) && !e._live);
+  if(!targets.length) return;
+  wlSwept=true;
+  const tok=await apiToken(); if(!tok) return;
+  const hz={accept:"application/json",authorization:"Bearer "+tok};
+  let i=0, dirty=false;
+  const worker=async()=>{
+    while(i<targets.length){
+      const e=targets[i++];
+      try{
+        const w=await (await fetch(`${API_BASE}/events/${e.id}/waitlist?expand=items._links.userProfile&ipp=100`,{headers:hz})).json();
+        const mine=(w.items||[]).some(it=>(personOf(it)||{}).id===me.id);
+        if(mine && !myWl.has(e.id)){ myWl.add(e.id); dirty=true; }
+      }catch(x){ /* skip this one, keep sweeping the rest */ }
+    }
+  };
+  await Promise.all(Array.from({length:6}, worker));
+  if(dirty){ saveMyWl(); render(); }
+}
 
 // ---- load ----
 fetch("./events.json",{cache:"no-store"})
@@ -883,6 +909,7 @@ function boot(payload){
   if(!data.length){ monthbar.style.display="none"; grid.hidden=true; emptyEl.hidden=false;
     emptyEl.innerHTML="<b>No upcoming sessions</b>Check back later — the club publishes its booking window a few weeks out."; return; }
   render();
+  sweepMyWaitlists();   // returning logged-in session: fill in waitlist marks without waiting for each card to be opened
 
   // first visit with no identity set → prompt for their name up front (once)
   try{
@@ -1374,6 +1401,7 @@ function openPeople(onboarding){
     try{
       await podplayLogin(email,pass);
       data.forEach(ev=>{ ev._live=false; });   // rosters were fetched anonymously — let cards re-fetch as you
+      wlSwept=false; sweepMyWaitlists();   // pick up any waitlist spots without waiting for each card to be opened
       syncFriendsUI(); render(); openPeople();
     }catch(ex){ err.textContent=ex.message; acctIn.disabled=false; acctIn.textContent="Log in"; }
   };
