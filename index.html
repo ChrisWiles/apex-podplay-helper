@@ -313,6 +313,15 @@
   .roster .metag{margin-left:auto;font-size:11px;font-weight:700;color:var(--mine);text-transform:uppercase;letter-spacing:.06em}
   .roster .rhd.wl{color:var(--c-clinic)}
   .me-box{padding:10px 22px 4px}
+  /* optional PodPlay account login (unlocks member-only data like waitlists) */
+  .acct{padding:4px 22px 10px;border-bottom:1px solid var(--hair-2)}
+  .acct .rhd{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:8px 0}
+  .acct .rhd .hint{text-transform:none;letter-spacing:0;font-weight:600}
+  .acct-hint{font-size:12.5px;color:var(--muted);line-height:1.45;margin-bottom:4px}
+  .acct-hint b{color:var(--ink-soft)}
+  .acct-row{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--ink-soft);flex-wrap:wrap;margin:6px 0 2px}
+  .acct-row .mini{margin-left:auto;font-size:12px;color:var(--muted);border:1px solid var(--hair);background:var(--card);border-radius:7px;padding:4px 9px;cursor:pointer;font-weight:600}
+  .acct-err{color:var(--full);font-size:12.5px;font-weight:600;flex:1;min-width:0}
   .me-box .cur{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600}
   .me-box .cur .who{color:var(--mine)}
   .me-box .mini{font-size:12px;color:var(--muted);border:1px solid var(--hair);background:var(--card);border-radius:7px;padding:4px 9px;cursor:pointer;font-weight:600}
@@ -689,26 +698,80 @@ function buildViews(){
   views.appendChild(save);
 }
 
-// ---- client-side anonymous PodPlay token (for live per-session roster refresh) ----
+// ---- client-side PodPlay token (for live per-session roster refresh) ----
+// Anonymous by default. Optionally, log in with a real PodPlay account (Firebase email/password —
+// the same Google Identity endpoint PodPlay's own app uses): the password is sent only to Google,
+// never stored; this device keeps just the session/refresh tokens. A real token can see
+// member-only data (e.g. waitlists, which come back empty for anonymous viewers).
 const FB_KEY="AIzaSyBlx8IDFiOEXeTEAuXLpvIn4FeOxEfBUxY";
 const API_BASE="https://apexpbclubs.podplay.app/apis/v2";
+const AUTH_KEY="apex-podplay-auth";
+let auth=null;   // {email, uid, refreshToken, idToken, exp}
+function loadAuth(){ try{ const a=JSON.parse(localStorage.getItem(AUTH_KEY)); if(a&&a.refreshToken&&a.uid) auth=a; }catch(e){} }
+function saveAuth(){ try{ auth ? localStorage.setItem(AUTH_KEY,JSON.stringify(auth)) : localStorage.removeItem(AUTH_KEY); }catch(e){} }
+async function podplayLogin(email,password){
+  const r=await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key="+FB_KEY,
+    {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({email,password,returnSecureToken:true})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok || !j.idToken){
+    const code=(j.error&&j.error.message)||"";
+    if(/EMAIL_NOT_FOUND|INVALID_PASSWORD|INVALID_LOGIN_CREDENTIALS/.test(code))
+      throw new Error("Email or password didn’t match a PodPlay account. (Google/Apple sign-in accounts can’t log in here — password accounts only.)");
+    if(/TOO_MANY_ATTEMPTS/.test(code)) throw new Error("Too many attempts — try again in a few minutes.");
+    throw new Error("Login failed — check your connection and try again.");
+  }
+  auth={email:j.email||email, uid:j.localId, refreshToken:j.refreshToken, idToken:j.idToken,
+        exp:Date.now()+(parseInt(j.expiresIn,10)||3600)*1000};
+  saveAuth();
+  // your Firebase UID *is* your PodPlay profile id in the rosters — logging in identifies you exactly
+  const known=PEOPLE.find(p=>p[0]===j.localId);
+  me={id:j.localId, name:(known&&known[1])||j.displayName||(auth.email.split("@")[0])};
+  saveMe();
+}
+function podplayLogout(){ auth=null; saveAuth(); }   // keeps your "me" identity + friends; just drops the session
 let _tokenP=null;
 function anonToken(){
   return _tokenP || (_tokenP=fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+FB_KEY,
     {method:"POST",headers:{"content-type":"application/json"},body:'{"returnSecureToken":true}'})
     .then(r=>r.json()).then(j=>j.idToken).catch(()=>{ _tokenP=null; return null; }));
 }
+// the token every API call should use: your account's (refreshed as needed), else anonymous
+async function apiToken(){
+  if(auth){
+    if(auth.idToken && auth.exp>Date.now()+60000) return auth.idToken;
+    try{
+      const r=await fetch("https://securetoken.googleapis.com/v1/token?key="+FB_KEY,
+        {method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},
+         body:"grant_type=refresh_token&refresh_token="+encodeURIComponent(auth.refreshToken)});
+      const j=await r.json();
+      if(j.id_token){
+        auth.idToken=j.id_token; if(j.refresh_token) auth.refreshToken=j.refresh_token;
+        auth.exp=Date.now()+(parseInt(j.expires_in,10)||3600)*1000;
+        saveAuth(); return auth.idToken;
+      }
+      podplayLogout();   // refresh token revoked/expired → back to anonymous quietly
+    }catch(x){ /* network blip — fall through to anonymous for this call, keep the session */ }
+  }
+  return anonToken();
+}
 const LIVE_SKIP=new Set(["CANCELED","DECLINED","REMOVED","WAITLISTED"]);
 function personOf(rec){ const p=rec.inviteeProfile||rec.profile||rec.invitee||{}; return p.id?{id:p.id,name:[p.firstName,p.lastName].filter(Boolean).join(" ").trim()||p.initials||""}:null; }
 // fetch this event's current roster + waitlist and update it in place; returns true if data present
 async function refreshRoster(e){
-  const tok=await anonToken(); if(!tok) return false;
+  const tok=await apiToken(); if(!tok) return false;
   const hz={accept:"application/json",authorization:"Bearer "+tok};
   try{
     const inv=await (await fetch(`${API_BASE}/events/${e.id}/invitations?expand=items._links.inviteeProfile&ipp=100`,{headers:hz})).json();
-    const att=[]; for(const r of inv.items||[]){ if(r.type!=="EVENT_SIGNUP"||LIVE_SKIP.has(r.status))continue; const p=personOf(r); if(p)att.push(p); }
+    const att=[], wlInv=[];
+    for(const r of inv.items||[]){
+      if(r.type!=="EVENT_SIGNUP")continue;
+      if(r.status==="WAITLISTED"){ const p=personOf(r); if(p)wlInv.push(p); continue; }   // visible when logged in
+      if(LIVE_SKIP.has(r.status))continue;
+      const p=personOf(r); if(p)att.push(p);
+    }
     let wl=[];
     if(e.full){ try{ const w=await (await fetch(`${API_BASE}/events/${e.id}/waitlist?expand=items._links.inviteeProfile&ipp=100`,{headers:hz})).json(); wl=(w.items||[]).map(personOf).filter(Boolean); }catch(x){} }
+    if(!wl.length) wl=wlInv;   // /waitlist is position-ordered when it answers; invitations are the fallback
     applyRoster(e, att, wl);
     // roster is now the source of truth → refresh the counts too, so spots/badges match
     e.signedUp = att.length;
@@ -734,7 +797,7 @@ fetch("./events.json",{cache:"no-store"})
 function boot(payload){
   const raw = (payload && payload.events) || [];
   PEOPLE = (payload && payload.people) || [];
-  loadFriends(); loadMe(); loadViews(); loadMyWl();
+  loadFriends(); loadMe(); loadViews(); loadMyWl(); loadAuth();
   TODAY = todayKey();
   const resolve = idxs => (idxs||[]).map(i=>PEOPLE[i]).filter(Boolean).map(p=>({id:p[0], name:p[1]}));
   data = raw.map(e=>{
@@ -1248,15 +1311,39 @@ function openPeople(onboarding){
       +'<div class="when">Search your name so the app can show what you’re registered for and your waitlist spots — or skip and just browse.</div>'
     : '<div class="cat" style="color:var(--mine)">You &amp; friends</div><h3 id="sh-title">You &amp; friends</h3>'
       +'<div class="when">Marks what you’re registered for, and flags friends’ sessions with a ★. Saved on this device only.</div>';
+  const acct = auth
+    ? '<div class="acct"><div class="rhd">PodPlay account</div>'
+      +'<div class="acct-row">Logged in as <b>'+esc(auth.email)+'</b> · live member data enabled'
+      +'<button class="mini" id="acctOut" type="button">Log out</button></div></div>'
+    : '<div class="acct"><div class="rhd">PodPlay account <span class="hint">· optional</span></div>'
+      +'<div class="acct-hint">Log in with your PodPlay email to fetch live data as you — including <b>waitlists</b>, which PodPlay hides from anonymous visitors. Your password goes only to PodPlay&rsquo;s sign-in service and is <b>never stored</b>; this device keeps just a session token.</div>'
+      +'<input class="me-search" id="acctEmail" type="email" placeholder="PodPlay email" autocomplete="username" aria-label="PodPlay email">'
+      +'<input class="me-search" id="acctPass" type="password" placeholder="Password" autocomplete="current-password" aria-label="PodPlay password">'
+      +'<div class="acct-row"><button class="vsave" id="acctIn" type="button">Log in</button><span class="acct-err" id="acctErr" role="alert"></span></div></div>';
   sheet.innerHTML=
     '<div class="top">'+head+'</div>'+
     meBox+
+    acct+
     '<div class="roster"><div class="rhd">Friends ('+friends.size+')</div></div>'+
     fr+
     '<div class="foot"><button class="book" id="fdone">'+(onboarding?"Skip for now":"Done")+'</button><button class="close" id="x" aria-label="Close">×</button></div>';
   scrim.classList.add("open");
   document.getElementById("x").onclick=closeSheet;
   document.getElementById("fdone").onclick=closeSheet;
+  const acctIn=document.getElementById("acctIn");
+  if(acctIn) acctIn.onclick=async()=>{
+    const email=document.getElementById("acctEmail").value.trim(), pass=document.getElementById("acctPass").value;
+    const err=document.getElementById("acctErr");
+    if(!email||!pass){ err.textContent="Enter your email and password."; return; }
+    acctIn.disabled=true; acctIn.textContent="Logging in…"; err.textContent="";
+    try{
+      await podplayLogin(email,pass);
+      data.forEach(ev=>{ ev._live=false; });   // rosters were fetched anonymously — let cards re-fetch as you
+      syncFriendsUI(); render(); openPeople();
+    }catch(ex){ err.textContent=ex.message; acctIn.disabled=false; acctIn.textContent="Log in"; }
+  };
+  const acctOut=document.getElementById("acctOut");
+  if(acctOut) acctOut.onclick=()=>{ podplayLogout(); openPeople(); };
   sheet.querySelectorAll(".rm").forEach(btn=>{ btn.onclick=()=>{ friends.delete(btn.dataset.id); saveFriends(); syncFriendsUI(); render(); openPeople(); }; });
   const changeBtn=document.getElementById("meChange");
   if(changeBtn) changeBtn.onclick=()=>{ me=null; saveMe(); syncFriendsUI(); render(); openPeople(); };
