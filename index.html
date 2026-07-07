@@ -475,6 +475,7 @@
           <button class="toggle" id="mineOnly" type="button" aria-pressed="false"><span class="tk"></span>✓ My sessions</button>
           <button class="toggle" id="friendsOnly" type="button" aria-pressed="false"><span class="tk"></span>★ Friends</button>
           <button class="toggle" id="openOnly" type="button" aria-pressed="false"><span class="tk"></span>Open spots only</button>
+          <button class="toggle" id="emptyOnly" type="button" aria-pressed="false" title="Sessions nobody has booked yet — a fresh court"><span class="tk"></span>◯ Empty sessions</button>
           <button class="toggle" id="hideConflicts" type="button" aria-pressed="false"><span class="tk"></span>⏱ Hide conflicts</button>
           <div class="fld">
             <label>Women&rsquo;s</label>
@@ -593,7 +594,7 @@ function meterHtml(e){
 
 // ---- module state, filled by boot() ----
 let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null, PEOPLE=[], curList=[];
-let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn,hideConflictsBtn,womenSeg,controlsEl,filtToggle,filtCount,filtDoneBtn,views;
+let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,emptyOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn,hideConflictsBtn,womenSeg,controlsEl,filtToggle,filtCount,filtDoneBtn,views;
 
 // ---- friends (per-device, keyed on stable PodPlay profile id) ----
 const FRIENDS_KEY="apex-podplay-friends";
@@ -641,7 +642,7 @@ let savedViews=[];
 function loadViews(){ try{ const a=JSON.parse(localStorage.getItem(VIEWS_KEY)); if(Array.isArray(a)) savedViews=a.filter(v=>v&&v.name&&v.f); }catch(e){} }
 function saveViews(){ try{ localStorage.setItem(VIEWS_KEY, JSON.stringify(savedViews)); }catch(e){} }
 function snapshotFilters(){ return { types:[...state.types], levels:[...state.levels], days:[...state.days],
-  tMin:state.tMin, tMax:state.tMax, openOnly:state.openOnly, friendsOnly:state.friendsOnly, mineOnly:state.mineOnly, hideConflicts:state.hideConflicts, women:state.women, search:state.search }; }
+  tMin:state.tMin, tMax:state.tMax, openOnly:state.openOnly, emptyOnly:state.emptyOnly, friendsOnly:state.friendsOnly, mineOnly:state.mineOnly, hideConflicts:state.hideConflicts, women:state.women, search:state.search }; }
 function applyView(f){
   if(!f) return;
   const okL=new Set(LEVEL_KEYS);
@@ -651,12 +652,13 @@ function applyView(f){
   state.tMin = typeof f.tMin==="number" ? Math.min(Math.max(f.tMin,T_FLOOR),T_CEIL) : T_FLOOR;
   state.tMax = typeof f.tMax==="number" ? Math.min(Math.max(f.tMax,T_FLOOR),T_CEIL) : T_CEIL;
   if(state.tMin>state.tMax){ state.tMin=T_FLOOR; state.tMax=T_CEIL; }
-  state.openOnly=!!f.openOnly; state.friendsOnly=!!f.friendsOnly; state.mineOnly=!!(f.mineOnly&&me);
+  state.openOnly=!!f.openOnly; state.emptyOnly=!!f.emptyOnly; state.friendsOnly=!!f.friendsOnly; state.mineOnly=!!(f.mineOnly&&me);
   state.hideConflicts=!!(f.hideConflicts&&me);
   state.women=(f.women==="only"||f.women==="none")?f.women:(f.womenOnly?"only":"all");   // incl. legacy boolean views
   state.search=f.search||"";
   tmin.value=state.tMin; tmax.value=state.tMax; searchEl.value=state.search;
   openOnlyBtn.setAttribute("aria-pressed",state.openOnly?"true":"false");
+  emptyOnlyBtn.setAttribute("aria-pressed",state.emptyOnly?"true":"false");
   friendsOnlyBtn.setAttribute("aria-pressed",state.friendsOnly?"true":"false");
   mineOnlyBtn.setAttribute("aria-pressed",state.mineOnly?"true":"false");
   hideConflictsBtn.setAttribute("aria-pressed",state.hideConflicts?"true":"false");
@@ -777,6 +779,7 @@ function boot(payload){
     tMin: T_FLOOR, tMax: T_CEIL,
     view: "month", month: null,
     openOnly: false,     // persisted
+    emptyOnly: false,    // persisted
     friendsOnly: false,  // persisted
     mineOnly: false,     // persisted
     hideConflicts: false, // persisted
@@ -811,7 +814,7 @@ function boot(payload){
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify({
     types:[...state.types], levels:[...state.levels], days:[...state.days],
-    tMin:state.tMin, tMax:state.tMax, view:state.view, openOnly:state.openOnly, friendsOnly:state.friendsOnly, mineOnly:state.mineOnly, hideConflicts:state.hideConflicts, women:state.women })); }catch(e){}
+    tMin:state.tMin, tMax:state.tMax, view:state.view, openOnly:state.openOnly, emptyOnly:state.emptyOnly, friendsOnly:state.friendsOnly, mineOnly:state.mineOnly, hideConflicts:state.hideConflicts, women:state.women })); }catch(e){}
 }
 function loadState(){
   let s; try{ s=JSON.parse(localStorage.getItem(LS_KEY)); }catch(e){ return; }
@@ -824,6 +827,7 @@ function loadState(){
   if(state.tMin>state.tMax){ state.tMin=T_FLOOR; state.tMax=T_CEIL; }
   if(s.view==="list"||s.view==="month") state.view=s.view;
   if(typeof s.openOnly==="boolean") state.openOnly=s.openOnly;
+  if(typeof s.emptyOnly==="boolean") state.emptyOnly=s.emptyOnly;
   if(typeof s.friendsOnly==="boolean") state.friendsOnly=s.friendsOnly;
   if(typeof s.mineOnly==="boolean") state.mineOnly=s.mineOnly;
   if(typeof s.hideConflicts==="boolean") state.hideConflicts=s.hideConflicts;
@@ -842,6 +846,7 @@ function passNonType(e){
     && state.days.has(e.dow)
     && e.mins>=state.tMin && e.mins<=state.tMax
     && (!state.openOnly || e.spotsLeft===null || e.spotsLeft>0)
+    && (!state.emptyOnly || !e.signedUp)
     && (!state.friendsOnly || friendCountIn(e)>0)
     && (!state.mineOnly || myStatus(e)!==null)
     && (!state.hideConflicts || !conflictEvent(e))
@@ -871,6 +876,7 @@ function cacheEls(){
   rfill=document.getElementById("rfill"); timeLbl=document.getElementById("timeLabel");
   dowToggle=document.getElementById("dowToggle"); lvlChips=document.getElementById("lvlChips"); typeChips=document.getElementById("typeChips");
   searchEl=document.getElementById("search"); openOnlyBtn=document.getElementById("openOnly");
+  emptyOnlyBtn=document.getElementById("emptyOnly");
   womenSeg=document.getElementById("womenSeg");
   friendsOnlyBtn=document.getElementById("friendsOnly"); manageFriendsBtn=document.getElementById("manageFriends");
   mineOnlyBtn=document.getElementById("mineOnly"); hideConflictsBtn=document.getElementById("hideConflicts");
@@ -892,6 +898,7 @@ function activeFilterCount(){
   if(state.days.size!==7) n++;
   if(state.tMin!==T_FLOOR || state.tMax!==T_CEIL) n++;
   if(state.openOnly) n++;
+  if(state.emptyOnly) n++;
   if(state.friendsOnly) n++;
   if(state.mineOnly) n++;
   if(state.hideConflicts) n++;
@@ -1388,6 +1395,8 @@ function wire(){
   });
   openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false");
   openOnlyBtn.onclick=()=>{ state.openOnly=!state.openOnly; openOnlyBtn.setAttribute("aria-pressed", state.openOnly?"true":"false"); saveState(); render(); };
+  emptyOnlyBtn.setAttribute("aria-pressed", state.emptyOnly?"true":"false");
+  emptyOnlyBtn.onclick=()=>{ state.emptyOnly=!state.emptyOnly; emptyOnlyBtn.setAttribute("aria-pressed", state.emptyOnly?"true":"false"); saveState(); render(); };
   syncWomen();
   [...womenSeg.children].forEach(b=>{ b.onclick=()=>{ state.women=b.dataset.w; syncWomen(); saveState(); render(); }; });
   friendsOnlyBtn.onclick=()=>{ state.friendsOnly=!state.friendsOnly; friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false"); saveState(); render(); };
@@ -1430,9 +1439,9 @@ function resetFilters(){
   try{ localStorage.removeItem(LS_KEY); }catch(e){}
   state.types=new Set(Object.keys(CATS)); state.levels=new Set(["all"]);
   state.days=new Set([0,1,2,3,4,5,6]); state.tMin=T_FLOOR; state.tMax=T_CEIL; state.view="month";
-  state.openOnly=false; state.friendsOnly=false; state.mineOnly=false; state.hideConflicts=false; state.women="all"; state.search="";
+  state.openOnly=false; state.emptyOnly=false; state.friendsOnly=false; state.mineOnly=false; state.hideConflicts=false; state.women="all"; state.search="";
   tmin.value=T_FLOOR; tmax.value=T_CEIL; searchEl.value="";
-  openOnlyBtn.setAttribute("aria-pressed","false"); friendsOnlyBtn.setAttribute("aria-pressed","false"); mineOnlyBtn.setAttribute("aria-pressed","false"); hideConflictsBtn.setAttribute("aria-pressed","false");
+  openOnlyBtn.setAttribute("aria-pressed","false"); emptyOnlyBtn.setAttribute("aria-pressed","false"); friendsOnlyBtn.setAttribute("aria-pressed","false"); mineOnlyBtn.setAttribute("aria-pressed","false"); hideConflictsBtn.setAttribute("aria-pressed","false");
   syncPressed(typeChips,"c-",state.types); syncLevels(); syncDow(); syncWomen(); updateRangeUI(); syncView();
   render();   // note: does not clear your identity (me) or friends list
 }
