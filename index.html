@@ -34,6 +34,14 @@
   .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
     color:var(--lime);display:flex;align-items:center;gap:9px}
   .eyebrow .dot{width:9px;height:9px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 4px rgba(199,230,63,.18)}
+  .hero-side{display:flex;flex-direction:column;align-items:flex-end;gap:14px}
+  /* always-visible entry point to identity/login — not buried inside a filter panel */
+  .acctpill{font-family:inherit;font-size:12.5px;font-weight:700;color:#e7ecf5;background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:7px 14px;cursor:pointer;white-space:nowrap;
+    transition:background .15s,border-color .15s}
+  .acctpill:hover{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.4)}
+  .acctpill:focus-visible{outline:2px solid var(--lime);outline-offset:2px}
+  .acctpill.in{color:var(--lime);border-color:rgba(199,230,63,.5)}
   h1{font-size:clamp(28px,4.2vw,44px);line-height:1.03;letter-spacing:-.03em;font-weight:800;
     margin:12px 0 0;text-wrap:balance;max-width:18ch}
   .sub{color:#aeb9cc;margin:11px 0 0;max-width:58ch;font-size:14.5px}
@@ -366,6 +374,7 @@
     /* compact hero: legend becomes one wrapping row, tighter padding */
     .hero-in{padding:22px 20px 20px;gap:16px}
     .legend{min-width:0;flex-direction:row;flex-wrap:wrap;gap:7px 16px}
+    .hero-side{align-items:flex-start;width:100%}
     .eyebrow{letter-spacing:.13em}
     /* comfortable touch targets (≥40px) */
     .iconbtn{width:40px;height:40px}
@@ -431,7 +440,10 @@
       <p class="sub">Browse every listed session at Apex and book straight on PodPlay. Filter by <b>level</b>, <b>type</b>, <b>day</b>, and <b>start time</b> &mdash; your filters are saved on this device.</p>
       <p class="snap" id="snap"></p>
     </div>
-    <div class="legend" id="legend"></div>
+    <div class="hero-side">
+      <button class="acctpill" id="acctEntry" type="button"></button>
+      <div class="legend" id="legend"></div>
+    </div>
   </div>
 </header>
 
@@ -603,7 +615,7 @@ function meterHtml(e){
 
 // ---- module state, filled by boot() ----
 let data=[], TODAY, T_FLOOR, T_CEIL, months=[], state, LEVEL_KEYS=["all"], selDays=new Set(), defaultedMonth=null, PEOPLE=[], curList=[];
-let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,emptyOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn,hideConflictsBtn,womenSeg,controlsEl,filtToggle,filtCount,filtDoneBtn,views;
+let grid,weeks,listEl,emptyEl,mlabel,mcount,monthbar,scrim,sheet,tmin,tmax,rfill,timeLbl,dowToggle,lvlChips,typeChips,dayPanel,searchEl,openOnlyBtn,emptyOnlyBtn,friendsOnlyBtn,manageFriendsBtn,mineOnlyBtn,hideConflictsBtn,womenSeg,controlsEl,filtToggle,filtCount,filtDoneBtn,views,acctEntry;
 
 // ---- friends (per-device, keyed on stable PodPlay profile id) ----
 const FRIENDS_KEY="apex-podplay-friends";
@@ -954,12 +966,24 @@ function cacheEls(){
   controlsEl=document.querySelector(".controls"); filtToggle=document.getElementById("filtToggle"); filtCount=document.getElementById("filtCount");
   filtDoneBtn=document.getElementById("filtDone");
   views=document.getElementById("views");
+  acctEntry=document.getElementById("acctEntry");
 }
 function syncFriendsUI(){
   manageFriendsBtn.textContent=(me?me.name.split(" ")[0]||"You":"You")+" · Friends ("+friends.size+")";
   friendsOnlyBtn.setAttribute("aria-pressed", state.friendsOnly?"true":"false");
   mineOnlyBtn.setAttribute("aria-pressed", state.mineOnly?"true":"false");
   hideConflictsBtn.setAttribute("aria-pressed", state.hideConflicts?"true":"false");
+  syncAcctPill();
+}
+// always-visible header entry point to the login/identity modal — the only other way in
+// (the "You & friends" filter-panel link) is easy to miss if onboarding was dismissed long ago
+function syncAcctPill(){
+  const first=n=>n&&n.trim().split(/\s+/)[0];
+  acctEntry.classList.toggle("in", !!auth);
+  acctEntry.textContent = auth ? "✓ "+(first(me&&me.name)||"Account")+" · Account"
+    : me ? (first(me.name)||"You")+" · Log in"
+    : "Log in";
+  acctEntry.title = auth ? "Logged in to PodPlay as "+auth.email : "Log in to PodPlay, or tell the app who you are";
 }
 // count filter dimensions that differ from default → shown on the mobile "Filters" button
 function activeFilterCount(){
@@ -1354,7 +1378,7 @@ function openPeople(onboarding){
     }catch(ex){ err.textContent=ex.message; acctIn.disabled=false; acctIn.textContent="Log in"; }
   };
   const acctOut=document.getElementById("acctOut");
-  if(acctOut) acctOut.onclick=()=>{ podplayLogout(); openPeople(); };
+  if(acctOut) acctOut.onclick=()=>{ podplayLogout(); syncFriendsUI(); render(); openPeople(); };
   sheet.querySelectorAll(".rm").forEach(btn=>{ btn.onclick=()=>{ friends.delete(btn.dataset.id); saveFriends(); syncFriendsUI(); render(); openPeople(); }; });
   const changeBtn=document.getElementById("meChange");
   if(changeBtn) changeBtn.onclick=()=>{ me=null; saveMe(); syncFriendsUI(); render(); openPeople(); };
@@ -1501,6 +1525,7 @@ function wire(){
   mineOnlyBtn.onclick=()=>{ if(!me){ openPeople(); return; } state.mineOnly=!state.mineOnly; mineOnlyBtn.setAttribute("aria-pressed", state.mineOnly?"true":"false"); saveState(); render(); };
   hideConflictsBtn.onclick=()=>{ if(!me){ openPeople(); return; } state.hideConflicts=!state.hideConflicts; hideConflictsBtn.setAttribute("aria-pressed", state.hideConflicts?"true":"false"); saveState(); render(); };
   manageFriendsBtn.onclick=()=>openPeople();
+  acctEntry.onclick=()=>openPeople();
   filtToggle.onclick=()=>setFiltersOpen(!controlsEl.classList.contains("open"));
   filtDoneBtn.onclick=()=>setFiltersOpen(false);
   syncFriendsUI();
