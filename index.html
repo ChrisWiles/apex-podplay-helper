@@ -14,8 +14,8 @@
     --ink:#101725; --ink-soft:#26324a; --muted:#5b6b82; --muted-2:#8a97ab;
     --paper:#f4f6fa; --card:#ffffff; --hair:#e3e8f1; --hair-2:#eef1f7;
     --brand:#2457d6; --lime:#c7e63f;
-    --c-open:#2563c9; --c-clinic:#c6741b; --c-social:#c2255c; --c-special:#6d3be0;
-    --c-open-b:#eaf1fd; --c-clinic-b:#fbf0e2; --c-social-b:#fbe7ee; --c-special-b:#f0ebfc;
+    --c-open:#2563c9; --c-clinic:#c6741b; --c-social:#c2255c; --c-special:#6d3be0; --c-tournament:#1a8754;
+    --c-open-b:#eaf1fd; --c-clinic-b:#fbf0e2; --c-social-b:#fbe7ee; --c-special-b:#f0ebfc; --c-tournament-b:#e8f5ec;
     --full:#b03636; --star:#e0a400; --mine:#178a3d; --avail:#0e8c7f; --conflict:#55606e; --conflict-b:#eef1f5;
     --shadow:0 1px 2px rgba(16,23,37,.06),0 8px 24px rgba(16,23,37,.06);
     --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -82,6 +82,7 @@
   .chip.c-clinic[aria-pressed="true"]{background:var(--c-clinic)}
   .chip.c-social[aria-pressed="true"]{background:var(--c-social)}
   .chip.c-special[aria-pressed="true"]{background:var(--c-special)}
+  .chip.c-tournament[aria-pressed="true"]{background:var(--c-tournament)}
   .chip:focus-visible,.iconbtn:focus-visible,.seg button:focus-visible,.ev:focus-visible,.book:focus-visible,
   .dow-btn:focus-visible,.lvl-btn:focus-visible,.reset:focus-visible,.range input:focus-visible::-webkit-slider-thumb{
     outline:2px solid var(--brand);outline-offset:2px}
@@ -181,8 +182,10 @@
   .cat-clinic{border-left-color:var(--c-clinic);background:var(--c-clinic-b)}
   .cat-social{border-left-color:var(--c-social);background:var(--c-social-b)}
   .cat-special{border-left-color:var(--c-special);background:var(--c-special-b)}
+  .cat-tournament{border-left-color:var(--c-tournament);background:var(--c-tournament-b)}
   .cat-openplay .et{color:var(--c-open)} .cat-clinic .et{color:var(--c-clinic)}
   .cat-social .et{color:var(--c-social)} .cat-special .et{color:var(--c-special)}
+  .cat-tournament .et{color:var(--c-tournament)}
   .more{font-size:11px;font-weight:700;color:var(--muted);background:none;border:0;cursor:pointer;padding:2px 4px;align-self:flex-start}
   .more:hover{color:var(--brand)}
 
@@ -211,9 +214,11 @@
   .row .rright{text-align:right;display:flex;flex-direction:column;gap:3px;align-items:flex-end}
   .row.cat-openplay{border-left-color:var(--c-open)} .row.cat-clinic{border-left-color:var(--c-clinic)}
   .row.cat-social{border-left-color:var(--c-social)} .row.cat-special{border-left-color:var(--c-special)}
+  .row.cat-tournament{border-left-color:var(--c-tournament)}
   .badge{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:999px}
   .b-openplay{background:var(--c-open-b);color:var(--c-open)} .b-clinic{background:var(--c-clinic-b);color:var(--c-clinic)}
   .b-social{background:var(--c-social-b);color:var(--c-social)} .b-special{background:var(--c-special-b);color:var(--c-special)}
+  .b-tournament{background:var(--c-tournament-b);color:var(--c-tournament)}
   .price{font-weight:700;font-variant-numeric:tabular-nums;font-size:14px}
   .spots{font-size:12px;font-weight:600;color:var(--avail)}
   .spots.low{color:var(--c-clinic)} .spots.none{color:var(--full)}
@@ -229,6 +234,7 @@
   .dot-c{width:6px;height:6px;border-radius:50%}
   .dot-c.openplay{background:var(--c-open)} .dot-c.clinic{background:var(--c-clinic)}
   .dot-c.social{background:var(--c-social)} .dot-c.special{background:var(--c-special)}
+  .dot-c.tournament{background:var(--c-tournament)}
   .paneln{padding:20px 18px;color:var(--muted);font-size:13.5px}
 
   /* modal */
@@ -549,11 +555,13 @@ const CATS = {
   clinic:   {label:"Clinic",    color:"var(--c-clinic)"},
   social:   {label:"Social",    color:"var(--c-social)"},
   special:  {label:"Special",   color:"var(--c-special)"},
+  tournament:{label:"Tournament",color:"var(--c-tournament)"},
 };
 function classifyType(e){
   const n=(e.name||"").toLowerCase();
   const tags=e.tags||[];
   if(e.customType==="Clinics" || tags.includes("Clinics")) return "clinic";
+  if(e.customType==="Tournaments" || tags.includes("Tournaments")) return "tournament";
   if(/social|ladies/.test(n) || tags.includes("Women")) return "social";
   if(e.customType==="Private Event") return "special";
   return "openplay";
@@ -1163,7 +1171,7 @@ function renderMonth(){
     if(mobile){
       const dots=document.createElement("div"); dots.className="daydots";
       const cats=new Set(evs.map(e=>e.cat));
-      ["openplay","clinic","social","special"].forEach(c=>{ if(cats.has(c)){ const s=document.createElement("span"); s.className="dot-c "+c; dots.appendChild(s); } });
+      ["openplay","clinic","social","special","tournament"].forEach(c=>{ if(cats.has(c)){ const s=document.createElement("span"); s.className="dot-c "+c; dots.appendChild(s); } });
       cell.appendChild(dots);
       let mineIn=false, mineWl=false;
       if(me||myWl.size){   // flag days where you're registered and/or waitlisted so it's visible without opening
