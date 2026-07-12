@@ -65,7 +65,10 @@ async function fetchAllEvents(token) {
     items.push(...batch);
     if (batch.length < 100) break;
   }
-  return items;
+  // Page-number pagination has no stable cursor, so an event whose sort key
+  // shifts between page fetches (e.g. a new event inserted upstream mid-scrape)
+  // can land on two pages. De-dupe by id, keeping the last-seen copy.
+  return Array.from(new Map(items.map((e) => [e.id, e])).values());
 }
 
 // earliest moment ANY tier can register (ISO strings sort chronologically) — null if unknown
