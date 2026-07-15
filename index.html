@@ -313,16 +313,6 @@
   .statusnote.mine b{color:var(--mine)}
   .statusnote.wl{background:#fbf3e3}
   .statusnote.wl b{color:var(--c-clinic)}
-  .statusnote .hint{color:var(--muted);font-weight:500}
-  /* self-reported waitlist: PodPlay doesn't publish waitlists, so the card offers to track yours */
-  .wlask{margin:0 22px 14px;padding:10px 12px;border-radius:10px;background:var(--hair-2);
-    display:flex;gap:8px;align-items:center;font-size:13px;line-height:1.4;color:var(--ink-soft)}
-  .wlask span{flex:1}
-  .wlbtn{margin-left:auto;flex:none;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;
-    border:1px solid var(--c-clinic);color:var(--c-clinic);background:var(--card);border-radius:8px;padding:7px 12px}
-  .wlbtn:hover{background:var(--c-clinic);color:#fff}
-  .wlbtn:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
-  .statusnote .wlbtn{align-self:center}
   .roster li.isme{background:#e7f6ec}
   .roster .metag{margin-left:auto;font-size:11px;font-weight:700;color:var(--mine);text-transform:uppercase;letter-spacing:.06em}
   .roster .rhd.wl{color:var(--c-clinic)}
@@ -643,21 +633,14 @@ let me=null;   // {id, name}
 function loadMe(){ try{ const m=JSON.parse(localStorage.getItem(ME_KEY)); if(m&&m.id) me={id:m.id,name:m.name||""}; }catch(e){} }
 function saveMe(){ try{ me ? localStorage.setItem(ME_KEY,JSON.stringify(me)) : localStorage.removeItem(ME_KEY); }catch(e){} }
 // PodPlay doesn't publish waitlist membership to anonymous viewers (the /waitlist endpoint and
-// invitations both come back empty of WAITLISTED entries), so waitlist spots are self-reported:
-// tap "track it" on a full session's card. Stored on this device, auto-dropped once the roster
-// shows you actually got in (promoted) or the event leaves the feed.
-const WL_KEY="apex-podplay-waitlisted";
-let myWl=new Set();   // event ids the user says they're waitlisted for
-function loadMyWl(){ try{ const a=JSON.parse(localStorage.getItem(WL_KEY)); if(Array.isArray(a)) a.forEach(id=>myWl.add(id)); }catch(e){} }
-function saveMyWl(){ try{ localStorage.setItem(WL_KEY, JSON.stringify([...myWl])); }catch(e){} }
+// invitations both come back empty of WAITLISTED entries), so waitlist status is only knowable
+// once you're logged in — see auth below and the viewer-scoped fetches in refreshRoster/sweepMyWaitlists.
 function myStatus(e){
-  if(me){
-    if(e._attIds && e._attIds.has(me.id)){ if(myWl.delete(e.id)) saveMyWl(); return {t:"in"}; }   // promoted off the waitlist → the mark is stale
-    // the live waitlist is viewer-scoped (usually just your own entry), so an index into it
-    // is not your real queue position — only claim a position when the list has more than you
-    if(e._wlIds && e._wlIds.has(me.id)) return {t:"wl", pos:(e._wl.length>1?(e._wl.findIndex(a=>a.id===me.id)+1):null)||null};
-  }
-  if(myWl.has(e.id)) return {t:"wl", pos:null, manual:true};
+  if(!me) return null;
+  if(e._attIds && e._attIds.has(me.id)) return {t:"in"};
+  // the live waitlist is viewer-scoped (usually just your own entry), so an index into it
+  // is not your real queue position — only claim a position when the list has more than you
+  if(e._wlIds && e._wlIds.has(me.id)) return {t:"wl", pos:(e._wl.length>1?(e._wl.findIndex(a=>a.id===me.id)+1):null)||null};
   return null;
 }
 // you can only physically be on one court at a time: flag sessions that overlap
@@ -799,12 +782,6 @@ async function refreshRoster(e){
     if(e.full){ try{ const w=await (await fetch(`${API_BASE}/events/${e.id}/waitlist?expand=items._links.userProfile&ipp=100`,{headers:hz})).json(); wl=(w.items||[]).map(personOf).filter(Boolean); }catch(x){} }
     if(!wl.length) wl=wlInv;   // /waitlist is position-ordered when it answers; invitations are the fallback
     applyRoster(e, att, wl);
-    // the waitlist is viewer-scoped (each member sees only their own entry), so a logged-in
-    // fetch is authoritative about YOU: sync the durable on-device mark to match.
-    if(auth && me && me.id===auth.uid){
-      const onWl=!!(e._wlIds && e._wlIds.has(me.id));
-      if(onWl!==myWl.has(e.id)){ onWl?myWl.add(e.id):myWl.delete(e.id); saveMyWl(); }
-    }
     // roster is now the source of truth → refresh the counts too, so spots/badges match
     e.signedUp = att.length;
     if(e.capacity){ e.spotsLeft = Math.max(0, e.capacity-att.length); e.full = att.length>=e.capacity; }
@@ -815,10 +792,10 @@ function applyRoster(e, att, wl){
   e._att=att.length?att:null; e._attIds=att.length?new Set(att.map(a=>a.id)):null; e._attNames=att.length?att.map(a=>a.name.toLowerCase()):null;
   e._wl=wl.length?wl:null; e._wlIds=wl.length?new Set(wl.map(a=>a.id)):null;
 }
-// otherwise a waitlist mark only ever appears once you happen to open that exact session's
-// card — the calendar/list views have no live data until then. So once logged in, sweep
-// every full near-term session once for a viewer-scoped waitlist entry (a lean waitlist-only
-// fetch, not the heavier full refreshRoster, since that's the one thing missing here).
+// otherwise your waitlist status only ever appears once you happen to open that exact session's
+// card — the calendar/list views have no live data until then. So once logged in, sweep every
+// full near-term session once for a viewer-scoped waitlist entry (a lean waitlist-only fetch,
+// not the heavier full refreshRoster, since that's the one thing missing here).
 let wlSwept=false;
 async function sweepMyWaitlists(){
   if(!auth || !me || me.id!==auth.uid || wlSwept) return;
@@ -833,13 +810,13 @@ async function sweepMyWaitlists(){
       const e=targets[i++];
       try{
         const w=await (await fetch(`${API_BASE}/events/${e.id}/waitlist?expand=items._links.userProfile&ipp=100`,{headers:hz})).json();
-        const mine=(w.items||[]).some(it=>(personOf(it)||{}).id===me.id);
-        if(mine && !myWl.has(e.id)){ myWl.add(e.id); dirty=true; }
+        const wl=(w.items||[]).map(personOf).filter(Boolean);
+        if(wl.length){ e._wl=wl; e._wlIds=new Set(wl.map(a=>a.id)); dirty=true; }
       }catch(x){ /* skip this one, keep sweeping the rest */ }
     }
   };
   await Promise.all(Array.from({length:6}, worker));
-  if(dirty){ saveMyWl(); render(); }
+  if(dirty) render();
 }
 
 // ---- load ----
@@ -855,7 +832,7 @@ fetch("./events.json",{cache:"no-store"})
 function boot(payload){
   const raw = (payload && payload.events) || [];
   PEOPLE = (payload && payload.people) || [];
-  loadFriends(); loadMe(); loadViews(); loadMyWl(); loadAuth();
+  loadFriends(); loadMe(); loadViews(); loadAuth();
   TODAY = todayKey();
   const resolve = idxs => (idxs||[]).map(i=>PEOPLE[i]).filter(Boolean).map(p=>({id:p[0], name:p[1]}));
   data = raw.map(e=>{
@@ -871,11 +848,6 @@ function boot(payload){
     applyRoster(ev, resolve(e.att), resolve(e.wl));   // baked signups + waitlist → id sets + search names
     return ev;
   }).filter(e=>e.dk>=TODAY && signupWindowOpen(e)).sort((a,b)=>a.start_ms-b.start_ms);
-
-  // prune self-reported waitlist marks whose events left the feed (happened, or fell out of the window)
-  { const ids=new Set(data.map(e=>e.id)); let dirty=false;
-    for(const id of myWl) if(!ids.has(id)){ myWl.delete(id); dirty=true; }
-    if(dirty) saveMyWl(); }
 
   // level filter options = whatever tokens actually exist, sorted 1,1+,2,2+,...
   LEVEL_KEYS = ["all", ...[...new Set(data.flatMap(e=>e.levelTokens))].sort(tokenSort)];
@@ -1178,7 +1150,7 @@ function renderMonth(){
       ["openplay","clinic","social","special","tournament"].forEach(c=>{ if(cats.has(c)){ const s=document.createElement("span"); s.className="dot-c "+c; dots.appendChild(s); } });
       cell.appendChild(dots);
       let mineIn=false, mineWl=false;
-      if(me||myWl.size){   // flag days where you're registered and/or waitlisted so it's visible without opening
+      if(me){   // flag days where you're registered and/or waitlisted so it's visible without opening
         mineIn=evs.some(x=>{const s=myStatus(x);return s&&s.t==="in";});
         mineWl=evs.some(x=>{const s=myStatus(x);return s&&s.t==="wl";});   // shown alongside ✓, not eclipsed by it
         if(mineIn||mineWl){
@@ -1441,24 +1413,12 @@ function openPeople(onboarding){
   document.getElementById("x").focus();
 }
 // your relationship to THIS session, stated plainly — don't make people scroll the roster to find their own name.
-// PodPlay hides waitlist membership from public viewers, so waitlist marks are self-reported:
-// a full session you have no status on offers a "track it" button instead.
-function statusNoteHtml(ms, e){
-  if(ms) return ms.t==="in"
+// requires being logged in to PodPlay: that's the only way waitlist membership is visible (see myStatus).
+function statusNoteHtml(ms){
+  if(!ms) return '';
+  return ms.t==="in"
     ? '<div class="statusnote mine">✓ <span>You&rsquo;re <b>registered</b> for this session.</span></div>'
-    : '<div class="statusnote wl">◷ <span>You&rsquo;re on the <b>waitlist</b>'+(ms.pos?' (#'+ms.pos+')':'')+' for this session.'
-      +(ms.manual?' <span class="hint">Tracked on this device.</span>':'')+'</span>'
-      +(ms.manual?'<button class="wlbtn" id="wlUnmark" type="button">Untrack</button>':'')+'</div>';
-  if(e && e.full && !pastLabel(e))
-    return '<div class="wlask">◷ <span>Joined this waitlist on PodPlay? Track it here so it shows on your calendar.</span>'
-      +'<button class="wlbtn" id="wlMark" type="button">I&rsquo;m waitlisted</button></div>';
-  return '';
-}
-function wireWlButtons(e){
-  const m=document.getElementById("wlMark");
-  if(m) m.onclick=()=>{ myWl.add(e.id); saveMyWl(); openSheet(e); render(); };
-  const u=document.getElementById("wlUnmark");
-  if(u) u.onclick=()=>{ myWl.delete(e.id); saveMyWl(); openSheet(e); render(); };
+    : '<div class="statusnote wl">◷ <span>You&rsquo;re on the <b>waitlist</b>'+(ms.pos?' (#'+ms.pos+')':'')+' for this session.</span></div>';
 }
 // re-checks this session's live roster/status and patches the open sheet in place.
 // force=true skips the "already refreshed once" guard — used when the tab regains focus
@@ -1476,7 +1436,7 @@ function liveRefreshSheet(e, force){
       const av=sheet.querySelector("#availWrap");   // live spots/waitlist + fullness meter
       if(av) av.innerHTML='<span id="availVal">'+availText(e)+'</span>'+meterHtml(e);
       const wrap=sheet.querySelector("#statusNoteWrap");   // e.g. you just got off the waitlist and into the session
-      if(wrap){ wrap.innerHTML=statusNoteHtml(myStatus(e), e); wireWlButtons(e); }
+      if(wrap){ wrap.innerHTML=statusNoteHtml(myStatus(e)); }
       render();   // refresh badges/counts behind the modal
     } else {
       const h=sheet.querySelector(".livehint"); if(h) h.remove();   // refresh failed → baked data stands
@@ -1495,7 +1455,7 @@ function openSheet(e){
   const past=pastLabel(e);
   const closed=sessionEnded(e);   // PodPlay still accepts bookings while a session is in progress — only ended ones are closed
   const conflict=closed?null:conflictEvent(e);   // a session that's over can't clash with anything anymore
-  const statusNote = '<div id="statusNoteWrap">'+statusNoteHtml(myStatus(e), e)+'</div>';
+  const statusNote = '<div id="statusNoteWrap">'+statusNoteHtml(myStatus(e))+'</div>';
   const conflictNote = conflict
     ? '<div class="conflictnote">⏱ <span>You’re already booked for <b>'+esc(conflict.name)+'</b> ('+timeLabelFull(conflict.start)+'–'+timeLabelFull(conflict.end)+') at this same time.</span></div>'
     : '';
@@ -1531,7 +1491,6 @@ function openSheet(e){
   document.getElementById("x").focus();
   const bookLink=document.getElementById("bookLink");
   if(bookLink) bookLink.onclick=()=>{ awaitingReturnFor=e; };
-  wireWlButtons(e);
   // live-refresh this session's roster so your status / who's going is exact-now (skip once it's over — nothing left to refresh)
   liveRefreshSheet(e);
 }
