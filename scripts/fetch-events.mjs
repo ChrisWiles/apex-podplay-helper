@@ -133,10 +133,25 @@ async function fetchRosters(token, raw) {
           `roster ${e.id}`,
         );
         const att = [];
+        const invIdByPersonId = new Map();
         for (const rec of inv.items || []) {
           if (rec.type !== "EVENT_SIGNUP" || SKIP_STATUS.has(rec.status)) continue;
           const p = person(rec);
-          if (p) att.push(p);
+          if (p) { att.push(p); invIdByPersonId.set(p.id, rec.id); }
+        }
+        // Per-player skill rating lives on a separate expand, keyed by invitation id
+        // (not profile id — the two id spaces don't overlap), so join it back onto `att`.
+        if (att.length) {
+          try {
+            const ratings = await fetchJson(`${API}/events/${e.id}?expand=_links.attendees`, { headers }, `ratings ${e.id}`);
+            const ratingByInvId = new Map(
+              (ratings.attendees?.items || []).filter((a) => a.rating != null).map((a) => [a.id, a.rating]),
+            );
+            for (const p of att) {
+              const rating = ratingByInvId.get(invIdByPersonId.get(p.id));
+              if (rating != null) p.rating = rating;
+            }
+          } catch { /* ratings are a nice-to-have; roster still works without them */ }
         }
         // waitlist only exists on full events — fetch it just for those (ordered = position)
         let wl = [];
@@ -197,14 +212,18 @@ async function main() {
     return i;
   };
 
+  // a bare index when there's no rating to carry, else [index, rating] — keeps old-format
+  // events.json (and any client that predates ratings) parseable without a schema bump
+  const encode = (p) => (p.rating != null ? [personIndex(p.id, p.name), p.rating] : personIndex(p.id, p.name));
+
   let waitlists = 0;
   const events = soon
     .map((e) => {
       const s = slim(e);
       const roster = rosters.get(e.id);
       if (roster) {
-        if (roster.att.length) s.att = roster.att.map((p) => personIndex(p.id, p.name));
-        if (roster.wl.length) { s.wl = roster.wl.map((p) => personIndex(p.id, p.name)); waitlists++; }
+        if (roster.att.length) s.att = roster.att.map(encode);
+        if (roster.wl.length) { s.wl = roster.wl.map(encode); waitlists++; }
       }
       return s;
     })

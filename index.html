@@ -314,6 +314,7 @@
   .statusnote.wl{background:#fbf3e3}
   .statusnote.wl b{color:var(--c-clinic)}
   .roster li.isme{background:#e7f6ec}
+  .roster .lvltag{font-size:11px;font-weight:700;color:var(--muted);background:var(--hair-2);border-radius:6px;padding:2px 6px;flex:none}
   .roster .metag{margin-left:auto;font-size:11px;font-weight:700;color:var(--mine);text-transform:uppercase;letter-spacing:.06em}
   .roster .rhd.wl{color:var(--c-clinic)}
   .me-box{padding:10px 22px 4px}
@@ -771,12 +772,20 @@ async function refreshRoster(e){
   const hz={accept:"application/json",authorization:"Bearer "+tok};
   try{
     const inv=await (await fetch(`${API_BASE}/events/${e.id}/invitations?expand=items._links.inviteeProfile&ipp=100`,{headers:hz})).json();
-    const att=[], wlInv=[];
+    const att=[], wlInv=[], invIdByPersonId=new Map();
     for(const r of inv.items||[]){
       if(r.type!=="EVENT_SIGNUP")continue;
       if(r.status==="WAITLISTED"){ const p=personOf(r); if(p)wlInv.push(p); continue; }   // visible when logged in
       if(LIVE_SKIP.has(r.status))continue;
-      const p=personOf(r); if(p)att.push(p);
+      const p=personOf(r); if(p){ att.push(p); invIdByPersonId.set(p.id, r.id); }
+    }
+    // per-attendee skill rating lives on a separate expand, keyed by invitation id (not profile id)
+    if(att.length){
+      try{
+        const ratings=await (await fetch(`${API_BASE}/events/${e.id}?expand=_links.attendees`,{headers:hz})).json();
+        const ratingByInvId=new Map((ratings.attendees?.items||[]).filter(a=>a.rating!=null).map(a=>[a.id,a.rating]));
+        for(const p of att){ const rating=ratingByInvId.get(invIdByPersonId.get(p.id)); if(rating!=null) p.rating=rating; }
+      }catch(x){ /* ratings are a nice-to-have; roster still works without them */ }
     }
     let wl=[];
     if(e.full){ try{ const w=await (await fetch(`${API_BASE}/events/${e.id}/waitlist?expand=items._links.userProfile&ipp=100`,{headers:hz})).json(); wl=(w.items||[]).map(personOf).filter(Boolean); }catch(x){} }
@@ -834,7 +843,11 @@ function boot(payload){
   PEOPLE = (payload && payload.people) || [];
   loadFriends(); loadMe(); loadViews(); loadAuth();
   TODAY = todayKey();
-  const resolve = idxs => (idxs||[]).map(i=>PEOPLE[i]).filter(Boolean).map(p=>({id:p[0], name:p[1]}));
+  // each entry is either a bare person-index, or [index, rating] when a skill rating is known
+  const resolve = idxs => (idxs||[]).map(entry=>{
+    const [i, rating] = Array.isArray(entry) ? entry : [entry, null];
+    const p=PEOPLE[i]; return p ? {id:p[0], name:p[1], rating} : null;
+  }).filter(Boolean);
   data = raw.map(e=>{
     const lv=levelTokensOf(e);
     const o=partsOf(e.start);                                   // one Intl call → derive dk, dow, and minutes
@@ -1311,8 +1324,9 @@ function personLi(p){
   const star = isme
     ? '<span class="star" aria-hidden="true"></span>'   // you can't follow yourself
     : '<button class="star" data-id="'+esc(p.id)+'" data-name="'+esc(p.name||"")+'" aria-pressed="'+(on?"true":"false")+'" aria-label="Follow '+nm+'">'+(on?"★":"☆")+'</button>';
+  const lvl = p.rating!=null ? '<span class="lvltag">'+esc(String(p.rating))+'</span>' : '';
   return '<li class="'+(isme?"isme ":"")+(on?"isfriend":"")+'">'+star
-    +'<span class="pn">'+nm+'</span>'+(isme?'<span class="metag">You</span>':'')+'</li>';
+    +'<span class="pn">'+nm+'</span>'+lvl+(isme?'<span class="metag">You</span>':'')+'</li>';
 }
 function sortRoster(list){ return [...list].sort((a,b)=>{
   const ma=(me&&me.id===a.id)?1:0, mb=(me&&me.id===b.id)?1:0; if(ma!==mb) return mb-ma;
@@ -1424,7 +1438,7 @@ function statusNoteHtml(ms){
 // force=true skips the "already refreshed once" guard — used when the tab regains focus
 // after the visitor followed the Book link, since that's exactly when status may have changed.
 function liveRefreshSheet(e, force){
-  if(!e.signedUp || pastLabel(e)) return;
+  if(!e.signedUp || sessionEnded(e)) return;   // in-progress sessions are still worth refreshing — only skip once truly over
   if(e._live && !force) return;
   const hd=sheet.querySelector("#rosterBox .rhd");
   if(hd) hd.insertAdjacentHTML("beforeend",' <span class="livehint">updating…</span>');
