@@ -608,6 +608,10 @@ function pastLabel(e){
   if(now<e.start_ms) return null;
   return now<e.end_ms ? "In progress" : "Session ended";
 }
+// PodPlay itself accepts bookings for a session that's already under way — only once it
+// actually ends does booking close. Distinct from pastLabel, which also flags "In progress"
+// purely for display.
+function sessionEnded(e){ return Date.now()>=e.end_ms; }
 function availText(e){
   if(e.spotsLeft===null) return "Open registration";
   if(e.spotsLeft===0) return e.full?"Full — join the waitlist":"Full";
@@ -1131,7 +1135,7 @@ function evChip(e){
   const b=document.createElement("button");
   const ms0=myStatus(e);
   const past=pastLabel(e);
-  const conflict=past?null:conflictEvent(e);   // a session that's over can't clash with anything anymore
+  const conflict=sessionEnded(e)?null:conflictEvent(e);   // a session that's over can't clash with anything anymore
   b.className="ev cat-"+e.cat+(e.full?(e.spotsLeft===0?" wl":" full"):"")+(ms0?(ms0.t==="in"?" mine":" minewl"):(conflict?" conflict":""))+(past?" past":"");
   b.title=timeLabelFull(e.start)+" · "+e.name+(conflict?" — you’re already booked for "+conflict.name+" at this time":"")+(past?" — "+past:"");
   const fc=friendCountIn(e), ms=ms0;
@@ -1489,18 +1493,19 @@ function openSheet(e){
     ? '$'+e.regular.toFixed(2).replace(/\.00$/,"")+' drop-in'+(e.member?' <span class="hint">· $'+e.member.toFixed(2).replace(/\.00$/,"")+' member</span>':'')
     : 'Free';
   const past=pastLabel(e);
-  const conflict=past?null:conflictEvent(e);   // a session that's over can't clash with anything anymore
+  const closed=sessionEnded(e);   // PodPlay still accepts bookings while a session is in progress — only ended ones are closed
+  const conflict=closed?null:conflictEvent(e);   // a session that's over can't clash with anything anymore
   const statusNote = '<div id="statusNoteWrap">'+statusNoteHtml(myStatus(e), e)+'</div>';
   const conflictNote = conflict
     ? '<div class="conflictnote">⏱ <span>You’re already booked for <b>'+esc(conflict.name)+'</b> ('+timeLabelFull(conflict.start)+'–'+timeLabelFull(conflict.end)+') at this same time.</span></div>'
     : '';
   const pastNote = past
-    ? '<div class="pastnote">🕓 <span>'+past+' — booking has closed for this session.</span></div>'
+    ? '<div class="pastnote">🕓 <span>'+past+(closed?' — booking has closed for this session.':' — you can still book while it’s underway.')+'</span></div>'
     : '';
-  const bookHtml = past
-    ? '<button class="book" type="button" disabled aria-disabled="true">'+past+' · Booking closed</button>'
+  const bookHtml = closed
+    ? '<button class="book" type="button" disabled aria-disabled="true">Session ended · Booking closed</button>'
     : '<a class="book" id="bookLink" href="'+BOOK(e.id)+'" target="_blank" rel="noopener">Book on PodPlay →</a>';
-  const noteHtml = past
+  const noteHtml = closed
     ? '<div class="note">This session’s time has passed, so PodPlay booking is no longer available.</div>'
     : '<div class="note">Opens the session on apexpbclubs.podplay.app · a PodPlay account is required to reserve.</div>';
   sheet.innerHTML=
